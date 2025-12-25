@@ -1,0 +1,43 @@
+# Water Gallon Inventory System - .gitignore
+
+# Database files
+*.db
+*.db-journal
+
+# QR Code images
+qr_codes/
+*.png
+*.jpg
+*.jpeg
+
+# Log files
+logs/
+*.log
+*.txt
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*~
