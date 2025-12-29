@@ -11,6 +11,7 @@ from qr_scanner import QRCodeScanner
 from text_logger import TextFileLogger
 import os
 from datetime import datetime
+from PIL import Image, ImageTk
 
 
 class InventoryApp:
@@ -18,13 +19,23 @@ class InventoryApp:
         """Initialize the main application"""
         self.root = root
         self.root.title("Water Gallon Inventory Management System")
-        self.root.geometry("1200x700")
+        
+        # Touchscreen optimizations
+        self.is_fullscreen = False
+        self.root.geometry("1400x800")
+        
+        # Make window fullscreen by default for touchscreen
+        # self.toggle_fullscreen()  # Uncomment for automatic fullscreen
         
         # Initialize components
         self.db = InventoryDatabase()
         self.qr_gen = QRCodeGenerator()
         self.qr_scanner = QRCodeScanner()
         self.logger = TextFileLogger()
+        
+        # Bind F11 for fullscreen toggle
+        self.root.bind('<F11>', lambda e: self.toggle_fullscreen())
+        self.root.bind('<Escape>', lambda e: self.exit_fullscreen())
         
         # Setup UI
         self.setup_ui()
@@ -41,28 +52,41 @@ class InventoryApp:
         title_label = tk.Label(
             title_frame,
             text="🚰 Water Gallon Inventory Management System",
-            font=("Arial", 18, "bold"),
+            font=("Arial", 22, "bold"),
             bg="#2c3e50",
             fg="white"
         )
         title_label.pack(pady=15)
+        
+        # Fullscreen toggle button
+        fullscreen_btn = tk.Button(
+            title_frame,
+            text="⛶",
+            command=self.toggle_fullscreen,
+            bg="#34495e",
+            fg="white",
+            font=("Arial", 16, "bold"),
+            cursor="hand2",
+            relief=tk.FLAT,
+            padx=15,
+            pady=5
+        )
+        fullscreen_btn.place(relx=0.98, rely=0.5, anchor=tk.E)
         
         # Main container
         main_container = tk.Frame(self.root)
         main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Left panel - Controls
-        left_panel = tk.Frame(main_container, width=400)
+        left_panel = tk.Frame(main_container, width=480)
         left_panel.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 10))
+        left_panel.pack_propagate(False)
         
         # Statistics Panel
         self.setup_statistics_panel(left_panel)
         
         # Add Gallon Panel
         self.setup_add_gallon_panel(left_panel)
-        
-        # Quick Actions Panel
-        self.setup_quick_actions_panel(left_panel)
         
         # Right panel - Inventory List
         right_panel = tk.Frame(main_container)
@@ -72,8 +96,8 @@ class InventoryApp:
     
     def setup_statistics_panel(self, parent):
         """Setup statistics display panel"""
-        stats_frame = tk.LabelFrame(parent, text="📊 Statistics", font=("Arial", 12, "bold"), padx=10, pady=10)
-        stats_frame.pack(fill=tk.X, pady=(0, 10))
+        stats_frame = tk.LabelFrame(parent, text="📊 Statistics", font=("Arial", 14, "bold"), padx=15, pady=15)
+        stats_frame.pack(fill=tk.X, pady=(0, 15))
         
         self.stats_labels = {}
         stats_info = [
@@ -85,27 +109,27 @@ class InventoryApp:
         ]
         
         for key, label, color in stats_info:
-            frame = tk.Frame(stats_frame, bg=color, padx=10, pady=5)
-            frame.pack(fill=tk.X, pady=2)
+            frame = tk.Frame(stats_frame, bg=color, padx=15, pady=10)
+            frame.pack(fill=tk.X, pady=3)
             
-            tk.Label(frame, text=label, font=("Arial", 10), bg=color, fg="white").pack(side=tk.LEFT)
-            self.stats_labels[key] = tk.Label(frame, text="0", font=("Arial", 10, "bold"), bg=color, fg="white")
+            tk.Label(frame, text=label, font=("Arial", 13), bg=color, fg="white").pack(side=tk.LEFT)
+            self.stats_labels[key] = tk.Label(frame, text="0", font=("Arial", 13, "bold"), bg=color, fg="white")
             self.stats_labels[key].pack(side=tk.RIGHT)
     
     def setup_add_gallon_panel(self, parent):
         """Setup add gallon panel"""
-        add_frame = tk.LabelFrame(parent, text="➕ Add New Gallon", font=("Arial", 12, "bold"), padx=10, pady=10)
-        add_frame.pack(fill=tk.X, pady=(0, 10))
+        add_frame = tk.LabelFrame(parent, text="➕ Add New Gallon", font=("Arial", 14, "bold"), padx=15, pady=15)
+        add_frame.pack(fill=tk.X, pady=(0, 15))
         
         # Inventory ID
-        tk.Label(add_frame, text="Inventory ID:", font=("Arial", 10)).pack(anchor=tk.W, pady=(5, 0))
-        self.id_entry = tk.Entry(add_frame, font=("Arial", 10))
-        self.id_entry.pack(fill=tk.X, pady=(0, 5))
+        tk.Label(add_frame, text="Inventory ID:", font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(5, 0))
+        self.id_entry = tk.Entry(add_frame, font=("Arial", 14))
+        self.id_entry.pack(fill=tk.X, pady=(0, 10), ipady=8)
         
         # Gallon Name
-        tk.Label(add_frame, text="Gallon Name:", font=("Arial", 10)).pack(anchor=tk.W, pady=(5, 0))
-        self.name_entry = tk.Entry(add_frame, font=("Arial", 10))
-        self.name_entry.pack(fill=tk.X, pady=(0, 10))
+        tk.Label(add_frame, text="Gallon Name:", font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(5, 0))
+        self.name_entry = tk.Entry(add_frame, font=("Arial", 14))
+        self.name_entry.pack(fill=tk.X, pady=(0, 15), ipady=8)
         
         # Buttons
         btn_frame = tk.Frame(add_frame)
@@ -117,9 +141,10 @@ class InventoryApp:
             command=self.add_gallon,
             bg="#27ae60",
             fg="white",
-            font=("Arial", 10, "bold"),
-            cursor="hand2"
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
+            font=("Arial", 13, "bold"),
+            cursor="hand2",
+            pady=12
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 8))
         
         tk.Button(
             btn_frame,
@@ -127,20 +152,19 @@ class InventoryApp:
             command=self.clear_form,
             bg="#95a5a6",
             fg="white",
-            font=("Arial", 10),
-            cursor="hand2"
+            font=("Arial", 13),
+            cursor="hand2",
+            pady=12
         ).pack(side=tk.RIGHT, expand=True, fill=tk.X)
     
     def setup_quick_actions_panel(self, parent):
         """Setup quick actions panel"""
-        actions_frame = tk.LabelFrame(parent, text="⚡ Quick Actions", font=("Arial", 12, "bold"), padx=10, pady=10)
-        actions_frame.pack(fill=tk.X, pady=(0, 10))
+        actions_frame = tk.LabelFrame(parent, text="⚡ Quick Actions", font=("Arial", 14, "bold"), padx=15, pady=15)
+        actions_frame.pack(fill=tk.X, pady=(0, 15))
         
         buttons = [
-            ("📷 Scan QR from Camera", self.scan_from_camera, "#3498db"),
-            ("🖼️ Scan QR from Image", self.scan_from_image, "#9b59b6"),
-            ("💾 Backup to Text File", self.backup_to_text, "#16a085"),
-            ("📋 Generate Report", self.generate_report, "#f39c12")
+            (" Backup", self.backup_to_text, "#16a085"),
+            ("📋 Report", self.generate_report, "#f39c12")
         ]
         
         for text, command, color in buttons:
@@ -150,30 +174,35 @@ class InventoryApp:
                 command=command,
                 bg=color,
                 fg="white",
-                font=("Arial", 10),
-                cursor="hand2"
-            ).pack(fill=tk.X, pady=2)
+                font=("Arial", 12, "bold"),
+                cursor="hand2",
+                pady=15
+            ).pack(fill=tk.X, pady=6)
     
     def setup_inventory_list(self, parent):
         """Setup inventory list with treeview"""
-        list_frame = tk.LabelFrame(parent, text="📦 Inventory List", font=("Arial", 12, "bold"), padx=10, pady=10)
+        list_frame = tk.LabelFrame(parent, text="📦 Inventory List", font=("Arial", 14, "bold"), padx=15, pady=15)
         list_frame.pack(fill=tk.BOTH, expand=True)
         
         # Search bar
         search_frame = tk.Frame(list_frame)
-        search_frame.pack(fill=tk.X, pady=(0, 10))
+        search_frame.pack(fill=tk.X, pady=(0, 15))
         
-        tk.Label(search_frame, text="Search:", font=("Arial", 10)).pack(side=tk.LEFT, padx=(0, 5))
-        self.search_entry = tk.Entry(search_frame, font=("Arial", 10))
-        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        tk.Label(search_frame, text="Search:", font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        self.search_entry = tk.Entry(search_frame, font=("Arial", 13))
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10), ipady=6)
         self.search_entry.bind('<KeyRelease>', lambda e: self.refresh_inventory_list())
         
         tk.Button(
             search_frame,
             text="Refresh",
             command=self.refresh_inventory_list,
-            font=("Arial", 9),
-            cursor="hand2"
+            font=("Arial", 12, "bold"),
+            cursor="hand2",
+            bg="#3498db",
+            fg="white",
+            padx=15,
+            pady=8
         ).pack(side=tk.RIGHT)
         
         # Treeview
@@ -216,7 +245,36 @@ class InventoryApp:
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         hsb.pack(side=tk.BOTTOM, fill=tk.X)
         
-        # Context menu
+        # Style for larger row height (touch-friendly)
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=35, font=("Arial", 11))
+        style.configure("Treeview.Heading", font=("Arial", 12, "bold"))
+        
+        # Touch-friendly action buttons below tree
+        action_button_frame = tk.Frame(list_frame)
+        action_button_frame.pack(fill=tk.X, pady=(15, 0))
+        
+        touch_buttons = [
+            ("📱 View QR", self.view_qr_selected, "#3498db"),
+            ("➕ Refill", self.refill_selected, "#27ae60"),
+            ("⚠️ Defect", self.defect_selected, "#e74c3c"),
+            ("🔍 Details", self.view_details, "#9b59b6"),
+            ("🗑️ Delete", self.delete_selected, "#95a5a6")
+        ]
+        
+        for text, command, color in touch_buttons:
+            tk.Button(
+                action_button_frame,
+                text=text,
+                command=command,
+                bg=color,
+                fg="white",
+                font=("Arial", 11, "bold"),
+                cursor="hand2",
+                pady=10
+            ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        
+        # Context menu (still available for non-touch devices)
         self.tree.bind("<Button-3>", self.show_context_menu)
         self.tree.bind("<Double-1>", lambda e: self.view_details())
     
@@ -249,9 +307,8 @@ class InventoryApp:
                 self.refresh_inventory_list()
                 self.update_statistics()
                 
-                # Ask if user wants to open QR code
-                if messagebox.askyesno("Open QR Code", "Do you want to view the QR code?"):
-                    os.startfile(qr_path)
+                # Display QR code in app
+                self.display_qr_code(qr_path, inventory_id, name)
             else:
                 messagebox.showerror("QR Error", qr_message)
         else:
@@ -353,6 +410,87 @@ class InventoryApp:
             font=("Arial", 10),
             cursor="hand2"
         ).pack(fill=tk.X, pady=5)
+    
+    def display_qr_code(self, qr_path, inventory_id, name):
+        """Display QR code in a new window within the app"""
+        try:
+            # Create new window
+            qr_window = tk.Toplevel(self.root)
+            qr_window.title(f"QR Code - {inventory_id}")
+            qr_window.transient(self.root)
+            
+            # Load and display image
+            img = Image.open(qr_path)
+            
+            # Resize if too large (max 600x600)
+            max_size = 600
+            if img.width > max_size or img.height > max_size:
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+            photo = ImageTk.PhotoImage(img)
+            
+            # Create frame
+            frame = tk.Frame(qr_window, padx=20, pady=20)
+            frame.pack()
+            
+            # Display info
+            info_label = tk.Label(
+                frame,
+                text=f"QR Code for: {name} ({inventory_id})",
+                font=("Arial", 12, "bold")
+            )
+            info_label.pack(pady=(0, 10))
+            
+            # Display image
+            img_label = tk.Label(frame, image=photo)
+            img_label.image = photo  # Keep a reference
+            img_label.pack()
+            
+            # File path info
+            path_label = tk.Label(
+                frame,
+                text=f"Saved to: {qr_path}",
+                font=("Arial", 9),
+                fg="gray"
+            )
+            path_label.pack(pady=(10, 0))
+            
+            # Buttons
+            button_frame = tk.Frame(frame)
+            button_frame.pack(pady=(15, 0))
+            
+            tk.Button(
+                button_frame,
+                text="Open in File Explorer",
+                command=lambda: os.startfile(os.path.dirname(qr_path)),
+                bg="#3498db",
+                fg="white",
+                font=("Arial", 10),
+                cursor="hand2",
+                padx=10
+            ).pack(side=tk.LEFT, padx=5)
+            
+            tk.Button(
+                button_frame,
+                text="Close",
+                command=qr_window.destroy,
+                bg="#95a5a6",
+                fg="white",
+                font=("Arial", 10),
+                cursor="hand2",
+                padx=20
+            ).pack(side=tk.LEFT, padx=5)
+            
+            # Center the window
+            qr_window.update_idletasks()
+            width = qr_window.winfo_width()
+            height = qr_window.winfo_height()
+            x = (qr_window.winfo_screenwidth() // 2) - (width // 2)
+            y = (qr_window.winfo_screenheight() // 2) - (height // 2)
+            qr_window.geometry(f'+{x}+{y}')
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not display QR code: {str(e)}")
     
     def record_refill(self, inventory_id, window=None):
         """Record a refill for a gallon"""
@@ -474,6 +612,8 @@ class InventoryApp:
             
             menu = tk.Menu(self.root, tearoff=0)
             menu.add_command(label="View Details", command=self.view_details)
+            menu.add_command(label="📱 View QR Code", command=self.view_qr_selected)
+            menu.add_separator()
             menu.add_command(label="Record Refill", command=self.refill_selected)
             menu.add_command(label="Report Defect", command=self.defect_selected)
             menu.add_separator()
@@ -518,6 +658,33 @@ class InventoryApp:
             log_text.insert(tk.END, f"  {activity['description']}\n\n")
         
         log_text.config(state=tk.DISABLED)
+        
+        # Buttons
+        button_frame = tk.Frame(details_window)
+        button_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        # Check if QR code exists
+        qr_path = os.path.join(self.qr_gen.output_dir, f"{inventory_id}_labeled.png")
+        if os.path.exists(qr_path):
+            tk.Button(
+                button_frame,
+                text="📱 View QR Code",
+                command=lambda: self.display_qr_code(qr_path, inventory_id, gallon['name']),
+                bg="#3498db",
+                fg="white",
+                font=("Arial", 10),
+                cursor="hand2"
+            ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="Close",
+            command=details_window.destroy,
+            bg="#95a5a6",
+            fg="white",
+            font=("Arial", 10),
+            cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=5)
     
     def refill_selected(self):
         """Record refill for selected gallon"""
@@ -532,6 +699,31 @@ class InventoryApp:
         if selection:
             inventory_id = self.tree.item(selection[0])['values'][0]
             self.report_defect(inventory_id)
+    
+    def view_qr_selected(self):
+        """View QR code for selected gallon"""
+        selection = self.tree.selection()
+        if not selection:
+            return
+        
+        values = self.tree.item(selection[0])['values']
+        inventory_id = values[0]
+        name = values[1]
+        
+        # Check if QR code exists
+        qr_path = os.path.join(self.qr_gen.output_dir, f"{inventory_id}_labeled.png")
+        
+        if os.path.exists(qr_path):
+            self.display_qr_code(qr_path, inventory_id, name)
+        else:
+            # QR code doesn't exist, offer to generate it
+            if messagebox.askyesno("QR Code Not Found", 
+                                   f"QR code for {inventory_id} not found.\n\nWould you like to generate it now?"):
+                success, message, qr_path = self.qr_gen.generate_qr_with_label(inventory_id, name)
+                if success:
+                    self.display_qr_code(qr_path, inventory_id, name)
+                else:
+                    messagebox.showerror("Error", f"Failed to generate QR code:\n{message}")
     
     def delete_selected(self):
         """Delete selected gallon"""
@@ -555,6 +747,18 @@ class InventoryApp:
         """Clear input form"""
         self.id_entry.delete(0, tk.END)
         self.name_entry.delete(0, tk.END)
+    
+    def toggle_fullscreen(self):
+        """Toggle fullscreen mode"""
+        self.is_fullscreen = not self.is_fullscreen
+        self.root.attributes("-fullscreen", self.is_fullscreen)
+        return "break"
+    
+    def exit_fullscreen(self):
+        """Exit fullscreen mode"""
+        self.is_fullscreen = False
+        self.root.attributes("-fullscreen", False)
+        return "break"
     
     def on_closing(self):
         """Handle application closing"""
