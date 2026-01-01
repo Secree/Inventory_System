@@ -11,8 +11,15 @@ This application manages inventory for water gallons in water refilling stations
 - Text file backup system
 - Easy-to-use GUI interface
 
-## Installation
+## 🚀 Quick Start
 
+### Easy Way (Recommended)
+**Just double-click `run.bat`** - it will automatically:
+- ✅ Set up the Python environment
+- ✅ Install all required packages
+- ✅ Launch the application
+
+### Manual Installation
 1. Install Python 3.8 or higher
 2. Install required packages:
 ```bash
@@ -36,3 +43,4 @@ python main.py
 3. **Track Refills**: Increment refill count when gallon is refilled
 4. **Report Defect**: Mark gallon as defective
 5. **Fix Defect**: Remove defect status and return to active inventory
+pip install -r requirements.txt
