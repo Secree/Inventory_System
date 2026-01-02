@@ -708,7 +708,7 @@ class InventoryApp:
             menu.post(event.x_root, event.y_root)
     
     def view_details(self):
-        """View details of selected gallon"""
+        """View details of selected gallon with QR code"""
         selection = self.tree.selection()
         if not selection:
             return
@@ -722,19 +722,27 @@ class InventoryApp:
         # Create details window
         details_window = tk.Toplevel(self.root)
         details_window.title(f"Details - {inventory_id}")
-        details_window.geometry("500x400")
+        details_window.geometry("900x600")
+        
+        # Main container with two columns
+        main_frame = tk.Frame(details_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Left column - Info and Activity
+        left_frame = tk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         
         # Info section
-        info_frame = tk.LabelFrame(details_window, text="Gallon Information", padx=20, pady=10)
-        info_frame.pack(fill=tk.X, padx=20, pady=10)
+        info_frame = tk.LabelFrame(left_frame, text="Gallon Information", padx=20, pady=10)
+        info_frame.pack(fill=tk.X, pady=(0, 10))
         
         for key, value in gallon.items():
             tk.Label(info_frame, text=f"{key.replace('_', ' ').title()}: {value}", 
                     font=("Arial", 10), anchor=tk.W).pack(fill=tk.X, pady=2)
         
         # Activity log section
-        log_frame = tk.LabelFrame(details_window, text="Recent Activity", padx=10, pady=10)
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        log_frame = tk.LabelFrame(left_frame, text="Recent Activity", padx=10, pady=10)
+        log_frame.pack(fill=tk.BOTH, expand=True)
         
         log_text = tk.Text(log_frame, height=10, font=("Courier", 9))
         log_text.pack(fill=tk.BOTH, expand=True)
@@ -745,22 +753,88 @@ class InventoryApp:
         
         log_text.config(state=tk.DISABLED)
         
-        # Buttons
-        button_frame = tk.Frame(details_window)
-        button_frame.pack(fill=tk.X, padx=20, pady=10)
+        # Right column - QR Code
+        right_frame = tk.Frame(main_frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(10, 0))
+        
+        qr_frame = tk.LabelFrame(right_frame, text="QR Code", padx=15, pady=15)
+        qr_frame.pack(fill=tk.BOTH, expand=True)
         
         # Check if QR code exists
         qr_path = os.path.join(self.qr_gen.output_dir, f"{inventory_id}_labeled.png")
+        
         if os.path.exists(qr_path):
+            try:
+                # Load and display QR code
+                img = Image.open(qr_path)
+                
+                # Resize to fit (max 400x400)
+                max_size = 400
+                if img.width > max_size or img.height > max_size:
+                    img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                
+                photo = ImageTk.PhotoImage(img)
+                
+                # Display image
+                img_label = tk.Label(qr_frame, image=photo)
+                img_label.image = photo  # Keep a reference
+                img_label.pack(pady=10)
+                
+                # File path info
+                path_label = tk.Label(
+                    qr_frame,
+                    text=f"Saved to:\n{qr_path}",
+                    font=("Arial", 8),
+                    fg="gray",
+                    wraplength=350
+                )
+                path_label.pack(pady=(10, 0))
+                
+                # Open folder button
+                tk.Button(
+                    qr_frame,
+                    text="Open Folder",
+                    command=lambda: os.startfile(os.path.dirname(qr_path)),
+                    bg="#3498db",
+                    fg="white",
+                    font=("Arial", 9),
+                    cursor="hand2",
+                    padx=15,
+                    pady=5
+                ).pack(pady=(10, 0))
+                
+            except Exception as e:
+                tk.Label(
+                    qr_frame,
+                    text=f"Error loading QR code:\n{str(e)}",
+                    font=("Arial", 10),
+                    fg="red",
+                    wraplength=350
+                ).pack(pady=20)
+        else:
+            # QR code doesn't exist
+            tk.Label(
+                qr_frame,
+                text="QR code not found",
+                font=("Arial", 11, "bold"),
+                fg="gray"
+            ).pack(pady=20)
+            
             tk.Button(
-                button_frame,
-                text="📱 View QR Code",
-                command=lambda: self.display_qr_code(qr_path, inventory_id, gallon['name']),
-                bg="#3498db",
+                qr_frame,
+                text="Generate QR Code",
+                command=lambda: self.generate_missing_qr(inventory_id, gallon['name'], details_window),
+                bg="#27ae60",
                 fg="white",
-                font=("Arial", 10),
-                cursor="hand2"
-            ).pack(side=tk.LEFT, padx=5)
+                font=("Arial", 10, "bold"),
+                cursor="hand2",
+                padx=20,
+                pady=10
+            ).pack(pady=10)
+        
+        # Bottom buttons
+        button_frame = tk.Frame(details_window)
+        button_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
         
         tk.Button(
             button_frame,
@@ -769,8 +843,21 @@ class InventoryApp:
             bg="#95a5a6",
             fg="white",
             font=("Arial", 10),
-            cursor="hand2"
+            cursor="hand2",
+            padx=30,
+            pady=8
         ).pack(side=tk.RIGHT, padx=5)
+    
+    def generate_missing_qr(self, inventory_id, name, parent_window):
+        """Generate QR code that's missing and refresh the details window"""
+        success, message, qr_path = self.qr_gen.generate_qr_with_label(inventory_id, name)
+        if success:
+            messagebox.showinfo("Success", "QR code generated successfully!")
+            # Close and reopen details window to show new QR
+            parent_window.destroy()
+            self.view_details()
+        else:
+            messagebox.showerror("Error", f"Failed to generate QR code:\n{message}")
     
     def refill_selected(self):
         """Record refill for selected gallon"""
