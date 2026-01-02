@@ -20,12 +20,23 @@ class InventoryApp:
         self.root = root
         self.root.title("Water Gallon Inventory Management System")
         
-        # Touchscreen optimizations
+        # Responsive design for small screens
         self.is_fullscreen = False
-        self.root.geometry("1400x800")
         
-        # Make window fullscreen by default for touchscreen
-        # self.toggle_fullscreen()  # Uncomment for automatic fullscreen
+        # Set smaller default size for small screens
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Use 90% of screen size or max 1200x700
+        window_width = min(int(screen_width * 0.9), 1200)
+        window_height = min(int(screen_height * 0.85), 700)
+        
+        # Center the window
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.root.minsize(800, 500)
         
         # Initialize components
         self.db = InventoryDatabase()
@@ -44,19 +55,19 @@ class InventoryApp:
     
     def setup_ui(self):
         """Setup the user interface"""
-        # Title
-        title_frame = tk.Frame(self.root, bg="#2c3e50", height=60)
+        # Compact Title for small screens
+        title_frame = tk.Frame(self.root, bg="#2c3e50", height=45)
         title_frame.pack(fill=tk.X)
         title_frame.pack_propagate(False)
         
         title_label = tk.Label(
             title_frame,
-            text="🚰 Water Gallon Inventory Management System",
-            font=("Arial", 22, "bold"),
+            text="🚰 Water Gallon Inventory",
+            font=("Arial", 14, "bold"),
             bg="#2c3e50",
             fg="white"
         )
-        title_label.pack(pady=15)
+        title_label.pack(pady=10)
         
         # Fullscreen toggle button
         fullscreen_btn = tk.Button(
@@ -73,31 +84,52 @@ class InventoryApp:
         )
         fullscreen_btn.place(relx=0.98, rely=0.5, anchor=tk.E)
         
-        # Main container
+        # Main container with notebook (tabs) for small screens
         main_container = tk.Frame(self.root)
-        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Left panel - Controls
-        left_panel = tk.Frame(main_container, width=480)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 10))
-        left_panel.pack_propagate(False)
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(main_container)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
         
-        # Statistics Panel
-        self.setup_statistics_panel(left_panel)
+        # Tab 1: Inventory List
+        inventory_tab = tk.Frame(self.notebook)
+        self.notebook.add(inventory_tab, text="📦 Inventory")
+        self.setup_inventory_list(inventory_tab)
         
-        # Add Gallon Panel
-        self.setup_add_gallon_panel(left_panel)
+        # Tab 2: Controls (Add & Scan)
+        controls_tab = tk.Frame(self.notebook)
+        self.notebook.add(controls_tab, text="➕ Add/Scan")
         
-        # Right panel - Inventory List
-        right_panel = tk.Frame(main_container)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        # Create scrollable frame for controls
+        canvas = tk.Canvas(controls_tab)
+        scrollbar = ttk.Scrollbar(controls_tab, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
         
-        self.setup_inventory_list(right_panel)
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Add panels to scrollable frame
+        self.setup_add_gallon_panel(scrollable_frame)
+        self.setup_qr_scanner_panel(scrollable_frame)
+        
+        # Tab 3: Statistics
+        stats_tab = tk.Frame(self.notebook)
+        self.notebook.add(stats_tab, text="📊 Stats")
+        self.setup_statistics_panel(stats_tab)
     
     def setup_statistics_panel(self, parent):
         """Setup statistics display panel"""
-        stats_frame = tk.LabelFrame(parent, text="📊 Statistics", font=("Arial", 14, "bold"), padx=15, pady=15)
-        stats_frame.pack(fill=tk.X, pady=(0, 15))
+        stats_frame = tk.LabelFrame(parent, text="📊 Statistics", font=("Arial", 12, "bold"), padx=10, pady=10)
+        stats_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         self.stats_labels = {}
         stats_info = [
@@ -109,27 +141,27 @@ class InventoryApp:
         ]
         
         for key, label, color in stats_info:
-            frame = tk.Frame(stats_frame, bg=color, padx=15, pady=10)
-            frame.pack(fill=tk.X, pady=3)
+            frame = tk.Frame(stats_frame, bg=color, padx=10, pady=8)
+            frame.pack(fill=tk.X, pady=2)
             
-            tk.Label(frame, text=label, font=("Arial", 13), bg=color, fg="white").pack(side=tk.LEFT)
-            self.stats_labels[key] = tk.Label(frame, text="0", font=("Arial", 13, "bold"), bg=color, fg="white")
+            tk.Label(frame, text=label, font=("Arial", 11), bg=color, fg="white").pack(side=tk.LEFT)
+            self.stats_labels[key] = tk.Label(frame, text="0", font=("Arial", 11, "bold"), bg=color, fg="white")
             self.stats_labels[key].pack(side=tk.RIGHT)
     
     def setup_add_gallon_panel(self, parent):
         """Setup add gallon panel"""
-        add_frame = tk.LabelFrame(parent, text="➕ Add New Gallon", font=("Arial", 14, "bold"), padx=15, pady=15)
-        add_frame.pack(fill=tk.X, pady=(0, 15))
+        add_frame = tk.LabelFrame(parent, text="➕ Add New Gallon", font=("Arial", 11, "bold"), padx=10, pady=10)
+        add_frame.pack(fill=tk.X, padx=10, pady=10)
         
         # Inventory ID
-        tk.Label(add_frame, text="Inventory ID:", font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(5, 0))
-        self.id_entry = tk.Entry(add_frame, font=("Arial", 14))
-        self.id_entry.pack(fill=tk.X, pady=(0, 10), ipady=8)
+        tk.Label(add_frame, text="Inventory ID:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
+        self.id_entry = tk.Entry(add_frame, font=("Arial", 11))
+        self.id_entry.pack(fill=tk.X, pady=(0, 8), ipady=5)
         
         # Gallon Name
-        tk.Label(add_frame, text="Gallon Name:", font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(5, 0))
-        self.name_entry = tk.Entry(add_frame, font=("Arial", 14))
-        self.name_entry.pack(fill=tk.X, pady=(0, 15), ipady=8)
+        tk.Label(add_frame, text="Gallon Name:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
+        self.name_entry = tk.Entry(add_frame, font=("Arial", 11))
+        self.name_entry.pack(fill=tk.X, pady=(0, 10), ipady=5)
         
         # Buttons
         btn_frame = tk.Frame(add_frame)
@@ -141,10 +173,10 @@ class InventoryApp:
             command=self.add_gallon,
             bg="#27ae60",
             fg="white",
-            font=("Arial", 13, "bold"),
+            font=("Arial", 10, "bold"),
             cursor="hand2",
-            pady=12
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 8))
+            pady=8
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
         
         tk.Button(
             btn_frame,
@@ -152,10 +184,44 @@ class InventoryApp:
             command=self.clear_form,
             bg="#95a5a6",
             fg="white",
-            font=("Arial", 13),
+            font=("Arial", 10),
             cursor="hand2",
-            pady=12
+            pady=8
         ).pack(side=tk.RIGHT, expand=True, fill=tk.X)
+    
+    def setup_qr_scanner_panel(self, parent):
+        """Setup QR scanner panel"""
+        scanner_frame = tk.LabelFrame(parent, text="📷 QR Code Scanner", font=("Arial", 11, "bold"), padx=10, pady=10)
+        scanner_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        tk.Label(
+            scanner_frame,
+            text="Scan QR codes for actions:",
+            font=("Arial", 9),
+            fg="gray"
+        ).pack(pady=(0, 8))
+        
+        tk.Button(
+            scanner_frame,
+            text="📷 Scan from Camera",
+            command=self.scan_from_camera,
+            bg="#3498db",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            cursor="hand2",
+            pady=8
+        ).pack(fill=tk.X, pady=3)
+        
+        tk.Button(
+            scanner_frame,
+            text="🖼️ Scan from Image",
+            command=self.scan_from_image,
+            bg="#9b59b6",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            cursor="hand2",
+            pady=8
+        ).pack(fill=tk.X, pady=3)
     
     def setup_quick_actions_panel(self, parent):
         """Setup quick actions panel"""
@@ -181,28 +247,28 @@ class InventoryApp:
     
     def setup_inventory_list(self, parent):
         """Setup inventory list with treeview"""
-        list_frame = tk.LabelFrame(parent, text="📦 Inventory List", font=("Arial", 14, "bold"), padx=15, pady=15)
-        list_frame.pack(fill=tk.BOTH, expand=True)
+        list_frame = tk.Frame(parent)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Search bar
         search_frame = tk.Frame(list_frame)
         search_frame.pack(fill=tk.X, pady=(0, 15))
         
-        tk.Label(search_frame, text="Search:", font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
-        self.search_entry = tk.Entry(search_frame, font=("Arial", 13))
-        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10), ipady=6)
+        tk.Label(search_frame, text="Search:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+        self.search_entry = tk.Entry(search_frame, font=("Arial", 10))
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5), ipady=3)
         self.search_entry.bind('<KeyRelease>', lambda e: self.refresh_inventory_list())
         
         tk.Button(
             search_frame,
-            text="Refresh",
+            text="↻",
             command=self.refresh_inventory_list,
-            font=("Arial", 12, "bold"),
+            font=("Arial", 14, "bold"),
             cursor="hand2",
             bg="#3498db",
             fg="white",
-            padx=15,
-            pady=8
+            padx=8,
+            pady=2
         ).pack(side=tk.RIGHT)
         
         # Treeview
@@ -245,21 +311,21 @@ class InventoryApp:
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         hsb.pack(side=tk.BOTTOM, fill=tk.X)
         
-        # Style for larger row height (touch-friendly)
+        # Style for compact rows on small screens
         style = ttk.Style()
-        style.configure("Treeview", rowheight=35, font=("Arial", 11))
-        style.configure("Treeview.Heading", font=("Arial", 12, "bold"))
+        style.configure("Treeview", rowheight=25, font=("Arial", 9))
+        style.configure("Treeview.Heading", font=("Arial", 10, "bold"))
         
         # Touch-friendly action buttons below tree
         action_button_frame = tk.Frame(list_frame)
         action_button_frame.pack(fill=tk.X, pady=(15, 0))
         
         touch_buttons = [
-            ("📱 View QR", self.view_qr_selected, "#3498db"),
-            ("➕ Refill", self.refill_selected, "#27ae60"),
-            ("⚠️ Defect", self.defect_selected, "#e74c3c"),
-            ("🔍 Details", self.view_details, "#9b59b6"),
-            ("🗑️ Delete", self.delete_selected, "#95a5a6")
+            ("📱", self.view_qr_selected, "#3498db"),
+            ("➕", self.refill_selected, "#27ae60"),
+            ("⚠️", self.defect_selected, "#e74c3c"),
+            ("🔍", self.view_details, "#9b59b6"),
+            ("🗑️", self.delete_selected, "#95a5a6")
         ]
         
         for text, command, color in touch_buttons:
@@ -269,10 +335,10 @@ class InventoryApp:
                 command=command,
                 bg=color,
                 fg="white",
-                font=("Arial", 11, "bold"),
+                font=("Arial", 14),
                 cursor="hand2",
-                pady=10
-            ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+                pady=5
+            ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         
         # Context menu (still available for non-touch devices)
         self.tree.bind("<Button-3>", self.show_context_menu)
@@ -341,7 +407,7 @@ class InventoryApp:
                 messagebox.showerror("Scan Failed", message)
     
     def process_scanned_qr(self, data):
-        """Process scanned QR code data"""
+        """Process scanned QR code data - Show choice between Refill and Defect"""
         inventory_id = data['inventory_id']
         gallon = self.db.get_gallon(inventory_id)
         
@@ -349,22 +415,30 @@ class InventoryApp:
             messagebox.showerror("Not Found", f"Gallon {inventory_id} not found in database")
             return
         
-        # Show action dialog
+        # Show action choice dialog
         action_window = tk.Toplevel(self.root)
-        action_window.title(f"Gallon {inventory_id}")
-        action_window.geometry("400x350")
+        action_window.title("Choose Action")
+        action_window.geometry("500x450")
         action_window.transient(self.root)
         action_window.grab_set()
         
         # Display info
-        info_frame = tk.LabelFrame(action_window, text="Gallon Information", padx=20, pady=10)
-        info_frame.pack(fill=tk.BOTH, padx=20, pady=10)
+        info_frame = tk.LabelFrame(action_window, text="Gallon Information", padx=25, pady=15, font=("Arial", 12, "bold"))
+        info_frame.pack(fill=tk.BOTH, padx=20, pady=(20, 10))
         
-        tk.Label(info_frame, text=f"ID: {gallon['inventory_id']}", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=2)
-        tk.Label(info_frame, text=f"Name: {gallon['name']}", font=("Arial", 10)).pack(anchor=tk.W, pady=2)
-        tk.Label(info_frame, text=f"Refills: {gallon['refills']}", font=("Arial", 10)).pack(anchor=tk.W, pady=2)
-        tk.Label(info_frame, text=f"Defects: {gallon['defects']}", font=("Arial", 10)).pack(anchor=tk.W, pady=2)
-        tk.Label(info_frame, text=f"Status: {gallon['status']}", font=("Arial", 10)).pack(anchor=tk.W, pady=2)
+        tk.Label(info_frame, text=f"ID: {gallon['inventory_id']}", font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=4)
+        tk.Label(info_frame, text=f"Name: {gallon['name']}", font=("Arial", 11)).pack(anchor=tk.W, pady=4)
+        tk.Label(info_frame, text=f"Refills: {gallon['refills']}", font=("Arial", 11)).pack(anchor=tk.W, pady=4)
+        tk.Label(info_frame, text=f"Defects: {gallon['defects']}", font=("Arial", 11)).pack(anchor=tk.W, pady=4)
+        tk.Label(info_frame, text=f"Status: {gallon['status'].upper()}", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=4)
+        
+        # Choose action label
+        tk.Label(
+            action_window,
+            text="What do you want to do?",
+            font=("Arial", 14, "bold"),
+            pady=15
+        ).pack()
         
         # Actions
         action_frame = tk.Frame(action_window)
@@ -372,44 +446,56 @@ class InventoryApp:
         
         tk.Button(
             action_frame,
-            text="➕ Record Refill",
+            text="➕ REFILL",
             command=lambda: self.record_refill(inventory_id, action_window),
             bg="#27ae60",
             fg="white",
-            font=("Arial", 10),
-            cursor="hand2"
-        ).pack(fill=tk.X, pady=5)
+            font=("Arial", 16, "bold"),
+            cursor="hand2",
+            pady=18
+        ).pack(fill=tk.X, pady=8)
         
         if gallon['status'] == 'active':
             tk.Button(
                 action_frame,
-                text="⚠️ Report Defect",
+                text="⚠️ DEFECT",
                 command=lambda: self.report_defect(inventory_id, action_window),
                 bg="#e74c3c",
                 fg="white",
-                font=("Arial", 10),
-                cursor="hand2"
-            ).pack(fill=tk.X, pady=5)
+                font=("Arial", 16, "bold"),
+                cursor="hand2",
+                pady=18
+            ).pack(fill=tk.X, pady=8)
         else:
             tk.Button(
                 action_frame,
-                text="✅ Fix Defect",
+                text="✅ FIX DEFECT",
                 command=lambda: self.fix_defect(inventory_id, action_window),
                 bg="#3498db",
                 fg="white",
-                font=("Arial", 10),
-                cursor="hand2"
-            ).pack(fill=tk.X, pady=5)
+                font=("Arial", 16, "bold"),
+                cursor="hand2",
+                pady=18
+            ).pack(fill=tk.X, pady=8)
         
         tk.Button(
             action_frame,
-            text="Close",
+            text="Cancel",
             command=action_window.destroy,
             bg="#95a5a6",
             fg="white",
-            font=("Arial", 10),
-            cursor="hand2"
-        ).pack(fill=tk.X, pady=5)
+            font=("Arial", 12),
+            cursor="hand2",
+            pady=12
+        ).pack(fill=tk.X, pady=8)
+        
+        # Center the window
+        action_window.update_idletasks()
+        width = action_window.winfo_width()
+        height = action_window.winfo_height()
+        x = (action_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (action_window.winfo_screenheight() // 2) - (height // 2)
+        action_window.geometry(f'+{x}+{y}')
     
     def display_qr_code(self, qr_path, inventory_id, name):
         """Display QR code in a new window within the app"""
