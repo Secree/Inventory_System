@@ -18,7 +18,7 @@ class InventoryApp:
     def __init__(self, root):
         """Initialize the main application"""
         self.root = root
-        self.root.title("Water Gallon Inventory Management System")
+        self.root.title("Water Gallon Inventory Management System Prototype")
         
         # Responsive design for small screens
         self.is_fullscreen = False
