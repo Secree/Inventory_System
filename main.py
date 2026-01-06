@@ -12,6 +12,9 @@ from text_logger import TextFileLogger
 import os
 from datetime import datetime
 from PIL import Image, ImageTk
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 
 class InventoryApp:
@@ -48,6 +51,9 @@ class InventoryApp:
         self.qr_scanner = QRCodeScanner()
         self.logger = TextFileLogger()
         
+        # Track canvas widgets for scrolling
+        self.canvas_widgets = {}
+        
         # Bind F11 for fullscreen toggle
         self.root.bind('<F11>', lambda e: self.toggle_fullscreen())
         self.root.bind('<Escape>', lambda e: self.exit_fullscreen())
@@ -57,6 +63,9 @@ class InventoryApp:
         self.refresh_inventory_list()
         self.update_statistics()
         self.update_id_preview()
+        
+        # Bind global mouse wheel scrolling
+        self.root.bind_all("<MouseWheel>", self.on_mousewheel_global)
     
     def setup_ui(self):
         """Setup the user interface"""
@@ -97,6 +106,9 @@ class InventoryApp:
         self.notebook = ttk.Notebook(main_container)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
+        # Enable tab reordering/dragging
+        self.notebook.enable_traversal()
+        
         # Tab 1: Inventory List
         inventory_tab = tk.Frame(self.notebook)
         self.notebook.add(inventory_tab, text="📦 Inventory")
@@ -119,6 +131,9 @@ class InventoryApp:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
+        # Store canvas for global scrolling
+        self.canvas_widgets['controls'] = canvas
+        
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
@@ -132,9 +147,29 @@ class InventoryApp:
         self.setup_statistics_panel(stats_tab)
     
     def setup_statistics_panel(self, parent):
-        """Setup statistics display panel"""
-        stats_frame = tk.LabelFrame(parent, text="📊 Statistics", font=("Arial", 12, "bold"), padx=10, pady=10)
-        stats_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        """Setup statistics display panel with graphs"""
+        # Create scrollable frame for stats
+        canvas = tk.Canvas(parent)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        stats_container = tk.Frame(canvas)
+        
+        stats_container.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=stats_container, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Store canvas for global scrolling
+        self.canvas_widgets['stats'] = canvas
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Stats cards at top
+        stats_frame = tk.LabelFrame(stats_container, text="📊 Statistics", font=("Arial", 12, "bold"), padx=10, pady=10)
+        stats_frame.pack(fill=tk.X, padx=10, pady=10)
         
         self.stats_labels = {}
         stats_info = [
@@ -152,6 +187,26 @@ class InventoryApp:
             tk.Label(frame, text=label, font=("Arial", 11), bg=color, fg="white").pack(side=tk.LEFT)
             self.stats_labels[key] = tk.Label(frame, text="0", font=("Arial", 11, "bold"), bg=color, fg="white")
             self.stats_labels[key].pack(side=tk.RIGHT)
+        
+        # Graphs section
+        graph_frame = tk.LabelFrame(stats_container, text="📈 Visual Analytics", font=("Arial", 12, "bold"), padx=10, pady=10)
+        graph_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create frame to hold graphs
+        self.graph_canvas_frame = tk.Frame(graph_frame)
+        self.graph_canvas_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Refresh button for graphs
+        tk.Button(
+            stats_frame,
+            text="🔄 Refresh Graphs",
+            command=self.update_graphs,
+            bg="#3498db",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            cursor="hand2",
+            pady=5
+        ).pack(fill=tk.X, pady=(10, 0))
     
     def setup_add_gallon_panel(self, parent):
         """Setup add gallon panel"""
@@ -159,7 +214,7 @@ class InventoryApp:
         add_frame.pack(fill=tk.X, padx=10, pady=10)
         
         # Auto-generated ID display (read-only)
-        tk.Label(add_frame, text="Inventory ID: font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
+        tk.Label(add_frame, text="Inventory ID (Auto-generated):", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
         self.id_display = tk.Label(add_frame, text="Will be generated automatically", font=("Arial", 11), bg="#ecf0f1", anchor=tk.W, padx=10, pady=8)
         self.id_display.pack(fill=tk.X, pady=(0, 8))
         
@@ -256,9 +311,13 @@ class InventoryApp:
         list_frame = tk.Frame(parent)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
+        # Configure grid for list_frame
+        list_frame.grid_rowconfigure(1, weight=1)
+        list_frame.grid_columnconfigure(0, weight=1)
+        
         # Search bar
         search_frame = tk.Frame(list_frame)
-        search_frame.pack(fill=tk.X, pady=(0, 15))
+        search_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
         
         tk.Label(search_frame, text="Search:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 5))
         self.search_entry = tk.Entry(search_frame, font=("Arial", 10))
@@ -277,17 +336,13 @@ class InventoryApp:
             pady=2
         ).pack(side=tk.RIGHT)
         
-        # Treeview
-        tree_frame = tk.Frame(list_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Scrollbars
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical")
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal")
+        # Treeview - Scrollbars
+        vsb = ttk.Scrollbar(list_frame, orient="vertical")
+        hsb = ttk.Scrollbar(list_frame, orient="horizontal")
         
         # Create treeview
         self.tree = ttk.Treeview(
-            tree_frame,
+            list_frame,
             columns=("ID", "Name", "Refills", "Defects", "Status", "Modified"),
             show="headings",
             yscrollcommand=vsb.set,
@@ -305,17 +360,21 @@ class InventoryApp:
         self.tree.heading("Status", text="Status")
         self.tree.heading("Modified", text="Last Modified")
         
-        self.tree.column("ID", width=100)
-        self.tree.column("Name", width=200)
-        self.tree.column("Refills", width=80)
-        self.tree.column("Defects", width=80)
-        self.tree.column("Status", width=100)
-        self.tree.column("Modified", width=150)
+        # Make columns fill the space and stretch
+        self.tree.column("ID", width=120, minwidth=100, stretch=True)
+        self.tree.column("Name", width=250, minwidth=150, stretch=True)
+        self.tree.column("Refills", width=100, minwidth=80, stretch=True)
+        self.tree.column("Defects", width=100, minwidth=80, stretch=True)
+        self.tree.column("Status", width=120, minwidth=100, stretch=True)
+        self.tree.column("Modified", width=180, minwidth=150, stretch=True)
         
-        # Pack
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        # Grid layout for better space filling
+        self.tree.grid(row=1, column=0, sticky="nsew")
+        vsb.grid(row=1, column=1, sticky="ns")
+        hsb.grid(row=2, column=0, sticky="ew")
+        
+        # Store tree for inventory scrolling
+        self.canvas_widgets['inventory'] = self.tree
         
         # Style for compact rows on small screens
         style = ttk.Style()
@@ -324,7 +383,7 @@ class InventoryApp:
         
         # Touch-friendly action buttons below tree
         action_button_frame = tk.Frame(list_frame)
-        action_button_frame.pack(fill=tk.X, pady=(15, 0))
+        action_button_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         
         touch_buttons = [
             ("📱", self.view_qr_selected, "#3498db"),
@@ -697,6 +756,122 @@ class InventoryApp:
         self.stats_labels['defective'].config(text=str(stats['defective_gallons']))
         self.stats_labels['refills'].config(text=str(stats['total_refills']))
         self.stats_labels['defects'].config(text=str(stats['total_defects']))
+        
+        # Update graphs if on stats tab
+        self.update_graphs()
+    
+    def update_graphs(self):
+        """Update visual graphs in statistics panel"""
+        try:
+            # Clear previous graphs
+            for widget in self.graph_canvas_frame.winfo_children():
+                widget.destroy()
+            
+            stats = self.db.get_statistics()
+            gallons = self.db.get_all_gallons()
+            
+            if not gallons:
+                tk.Label(
+                    self.graph_canvas_frame,
+                    text="No data to display. Add gallons to see graphs.",
+                    font=("Arial", 12),
+                    fg="gray"
+                ).pack(pady=50)
+                return
+            
+            # Create figure with subplots
+            fig = Figure(figsize=(10, 8), facecolor='#ecf0f1')
+            
+            # 1. Pie chart - Active vs Defective
+            ax1 = fig.add_subplot(2, 2, 1)
+            if stats['total_gallons'] > 0:
+                sizes = [stats['active_gallons'], stats['defective_gallons']]
+                labels = ['Active', 'Defective']
+                colors = ['#27ae60', '#e74c3c']
+                explode = (0.05, 0.05)
+                
+                ax1.pie(sizes, explode=explode, labels=labels, colors=colors,
+                       autopct='%1.1f%%', shadow=True, startangle=90)
+                ax1.set_title('Gallon Status Distribution', fontweight='bold', fontsize=11)
+            
+            # 2. Bar chart - Top 10 gallons by refills
+            ax2 = fig.add_subplot(2, 2, 2)
+            sorted_gallons = sorted(gallons, key=lambda x: x['refills'], reverse=True)[:10]
+            if sorted_gallons:
+                ids = [g['inventory_id'] for g in sorted_gallons]
+                refills = [g['refills'] for g in sorted_gallons]
+                
+                bars = ax2.barh(ids, refills, color='#3498db')
+                ax2.set_xlabel('Refills', fontweight='bold')
+                ax2.set_title('Top 10 Most Refilled Gallons', fontweight='bold', fontsize=11)
+                ax2.invert_yaxis()
+                
+                # Add value labels on bars
+                for i, (bar, value) in enumerate(zip(bars, refills)):
+                    ax2.text(value, i, f' {value}', va='center', fontweight='bold')
+            
+            # 3. Bar chart - Gallons with defects
+            ax3 = fig.add_subplot(2, 2, 3)
+            defective_gallons = [g for g in gallons if g['defects'] > 0][:10]
+            if defective_gallons:
+                ids = [g['inventory_id'] for g in defective_gallons]
+                defects = [g['defects'] for g in defective_gallons]
+                
+                bars = ax3.bar(ids, defects, color='#e74c3c')
+                ax3.set_ylabel('Defects', fontweight='bold')
+                ax3.set_title('Gallons with Defects', fontweight='bold', fontsize=11)
+                ax3.tick_params(axis='x', rotation=45)
+                
+                # Add value labels on bars
+                for bar, value in zip(bars, defects):
+                    height = bar.get_height()
+                    ax3.text(bar.get_x() + bar.get_width()/2., height,
+                            f'{int(value)}', ha='center', va='bottom', fontweight='bold')
+            else:
+                ax3.text(0.5, 0.5, 'No defects recorded!', 
+                        ha='center', va='center', transform=ax3.transAxes,
+                        fontsize=12, color='#27ae60', fontweight='bold')
+                ax3.set_title('Gallons with Defects', fontweight='bold', fontsize=11)
+            
+            # 4. Summary statistics
+            ax4 = fig.add_subplot(2, 2, 4)
+            ax4.axis('off')
+            
+            summary_text = f"""
+INVENTORY SUMMARY
+
+Total Gallons: {stats['total_gallons']}
+Active: {stats['active_gallons']} ({stats['active_gallons']/max(stats['total_gallons'],1)*100:.1f}%)
+Defective: {stats['defective_gallons']} ({stats['defective_gallons']/max(stats['total_gallons'],1)*100:.1f}%)
+
+Total Refills: {stats['total_refills']}
+Avg Refills per Gallon: {stats['total_refills']/max(stats['total_gallons'],1):.1f}
+
+Total Defects: {stats['total_defects']}
+Avg Defects per Gallon: {stats['total_defects']/max(stats['total_gallons'],1):.2f}
+
+Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
+  ({sorted_gallons[0]['refills']} refills)
+            """
+            
+            ax4.text(0.1, 0.9, summary_text, transform=ax4.transAxes,
+                    fontsize=10, verticalalignment='top', family='monospace',
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            fig.tight_layout(pad=2.0)
+            
+            # Embed in tkinter
+            canvas = FigureCanvasTkAgg(fig, master=self.graph_canvas_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            
+        except Exception as e:
+            tk.Label(
+                self.graph_canvas_frame,
+                text=f"Error generating graphs: {str(e)}",
+                font=("Arial", 10),
+                fg="red"
+            ).pack(pady=20)
     
     def show_context_menu(self, event):
         """Show context menu on right-click"""
@@ -948,6 +1123,26 @@ class InventoryApp:
         self.is_fullscreen = False
         self.root.attributes("-fullscreen", False)
         return "break"
+    
+    def on_mousewheel_global(self, event):
+        """Handle mouse wheel scrolling globally based on active tab"""
+        try:
+            # Get the current active tab
+            current_tab = self.notebook.index(self.notebook.select())
+            
+            # Tab 0: Inventory - scroll the tree
+            if current_tab == 0 and 'inventory' in self.canvas_widgets:
+                self.canvas_widgets['inventory'].yview_scroll(int(-1*(event.delta/120)), "units")
+            
+            # Tab 1: Controls - scroll the canvas
+            elif current_tab == 1 and 'controls' in self.canvas_widgets:
+                self.canvas_widgets['controls'].yview_scroll(int(-1*(event.delta/120)), "units")
+            
+            # Tab 2: Stats - scroll the canvas
+            elif current_tab == 2 and 'stats' in self.canvas_widgets:
+                self.canvas_widgets['stats'].yview_scroll(int(-1*(event.delta/120)), "units")
+        except:
+            pass  # Silently ignore any scrolling errors
     
     def on_closing(self):
         """Handle application closing"""

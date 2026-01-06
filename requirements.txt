@@ -2,3 +2,4 @@ qrcode[pil]
 Pillow
 opencv-python
 numpy
+matplotlib
