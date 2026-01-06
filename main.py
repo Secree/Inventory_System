@@ -56,6 +56,7 @@ class InventoryApp:
         self.setup_ui()
         self.refresh_inventory_list()
         self.update_statistics()
+        self.update_id_preview()
     
     def setup_ui(self):
         """Setup the user interface"""
@@ -157,15 +158,16 @@ class InventoryApp:
         add_frame = tk.LabelFrame(parent, text="➕ Add New Gallon", font=("Arial", 11, "bold"), padx=10, pady=10)
         add_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Inventory ID
-        tk.Label(add_frame, text="Inventory ID:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
-        self.id_entry = tk.Entry(add_frame, font=("Arial", 11))
-        self.id_entry.pack(fill=tk.X, pady=(0, 8), ipady=5)
+        # Auto-generated ID display (read-only)
+        tk.Label(add_frame, text="Inventory ID: font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
+        self.id_display = tk.Label(add_frame, text="Will be generated automatically", font=("Arial", 11), bg="#ecf0f1", anchor=tk.W, padx=10, pady=8)
+        self.id_display.pack(fill=tk.X, pady=(0, 8))
         
         # Gallon Name
         tk.Label(add_frame, text="Gallon Name:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
         self.name_entry = tk.Entry(add_frame, font=("Arial", 11))
         self.name_entry.pack(fill=tk.X, pady=(0, 10), ipady=5)
+        self.name_entry.bind('<KeyRelease>', lambda e: self.update_id_preview())
         
         # Buttons
         btn_frame = tk.Frame(add_frame)
@@ -350,12 +352,14 @@ class InventoryApp:
     
     def add_gallon(self):
         """Add a new gallon and generate QR code"""
-        inventory_id = self.id_entry.get().strip()
         name = self.name_entry.get().strip()
         
-        if not inventory_id or not name:
-            messagebox.showwarning("Input Error", "Please enter both Inventory ID and Name")
+        if not name:
+            messagebox.showwarning("Input Error", "Please enter Gallon Name")
             return
+        
+        # Auto-generate inventory ID
+        inventory_id = self.db.generate_inventory_id()
         
         # Add to database
         success, message = self.db.add_gallon(inventory_id, name)
@@ -922,8 +926,16 @@ class InventoryApp:
     
     def clear_form(self):
         """Clear input form"""
-        self.id_entry.delete(0, tk.END)
         self.name_entry.delete(0, tk.END)
+        self.update_id_preview()
+    
+    def update_id_preview(self):
+        """Update the preview of the next auto-generated ID"""
+        try:
+            next_id = self.db.generate_inventory_id()
+            self.id_display.config(text=f"{next_id} (Next available)")
+        except:
+            self.id_display.config(text="WG-0001 (Next available)")
     
     def toggle_fullscreen(self):
         """Toggle fullscreen mode"""

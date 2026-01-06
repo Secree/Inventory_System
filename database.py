@@ -103,6 +103,30 @@ class InventoryDatabase:
             })
         return gallons
     
+    def generate_inventory_id(self):
+        """Generate next available inventory ID"""
+        self.cursor.execute('SELECT inventory_id FROM gallons ORDER BY inventory_id DESC LIMIT 1')
+        result = self.cursor.fetchone()
+        
+        if result:
+            last_id = result[0]
+            # Extract number from ID (e.g., 'WG-0001' -> 1)
+            if last_id.startswith('WG-'):
+                try:
+                    num = int(last_id.split('-')[1])
+                    return f'WG-{num + 1:04d}'
+                except:
+                    pass
+            # If format is different, try to extract any number
+            import re
+            numbers = re.findall(r'\d+', last_id)
+            if numbers:
+                last_num = int(numbers[-1])
+                return f'WG-{last_num + 1:04d}'
+        
+        # First gallon
+        return 'WG-0001'
+    
     def increment_refills(self, inventory_id):
         """Increment refill count for a gallon"""
         try:
