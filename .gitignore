@@ -13,7 +13,6 @@ qr_codes/
 # Log files
 logs/
 *.log
-*.txt
 
 # Python cache
 __pycache__/
