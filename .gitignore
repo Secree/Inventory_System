@@ -5,14 +5,13 @@
 *.db-journal
 
 # QR Code images
-qr_codes/
-*.png
-*.jpg
-*.jpeg
+qr_codes/*.png
+qr_codes/*.jpg
+qr_codes/*.jpeg
 
 # Log files
-logs/
-*.log
+logs/*.txt
+logs/*.log
 
 # Python cache
 __pycache__/

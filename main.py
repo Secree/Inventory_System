@@ -20,6 +20,10 @@ class InventoryApp:
         self.root = root
         self.root.title("Water Gallon Inventory Management System Prototype")
         
+        # Create necessary directories if they don't exist
+        os.makedirs('logs', exist_ok=True)
+        os.makedirs('qr_codes', exist_ok=True)
+        
         # Responsive design for small screens
         self.is_fullscreen = False
         
