@@ -1,0 +1,11 @@
+qrcode[pil]
+Pillow
+opencv-python
+numpy
+matplotlib
+pyzbar
+
+# Pressure sensor libraries (optional - only if using hardware sensors)
+# Uncomment these lines if you have pressure sensor hardware:
+# adafruit-circuitpython-mcp3xxx
+# adafruit-circuitpython-bmp280

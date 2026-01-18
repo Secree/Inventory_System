@@ -1,0 +1,81 @@
+🥧 RASPBERRY PI QUICK START
+==========================
+
+📋 STEP 1: Transfer Files to Your Pi
+------------------------------------
+Option A - Using Git (if you have repo):
+  git clone <your-repo-url>
+  cd Inventory_System
+
+Option B - Using USB/Network:
+  - Copy entire Inventory_System folder to Pi
+  - Place in /home/pi/Inventory_System
+
+📦 STEP 2: Run Setup (One Time Only)
+-------------------------------------
+  cd Inventory_System
+  ./setup_raspberry_pi.sh
+
+  This will:
+  ✓ Install all dependencies
+  ✓ Configure camera
+  ✓ Create desktop shortcut
+  ✓ Set up directories
+
+🚀 STEP 3: Run the Application
+-------------------------------
+Option A - Quick Run:
+  ./run_on_pi.sh
+
+Option B - Direct Run:
+  python3 main.py
+
+Option C - Desktop Icon:
+  Double-click "Water Gallon Inventory" on desktop
+
+⚡ QUICK COMMANDS
+-----------------
+Setup Pi:      ./setup_raspberry_pi.sh
+Run App:       ./run_on_pi.sh  OR  python3 main.py
+Fullscreen:    Press F11
+Exit Full:     Press Escape
+
+📷 ENABLE CAMERA (if needed)
+-----------------------------
+  sudo raspi-config
+  → Interface Options → Camera → Enable
+  → Reboot
+
+🐛 TROUBLESHOOTING
+------------------
+Camera not working:
+  sudo raspi-config → Interface Options → Camera
+  sudo usermod -a -G video $USER
+
+App won't start:
+  pip3 install -r requirements.txt
+  python3 main.py
+
+Screen too small:
+  Press F11 for fullscreen
+
+🔧 SYSTEM REQUIREMENTS
+----------------------
+✓ Raspberry Pi 3B or newer (Pi 4 recommended)
+✓ 1GB RAM minimum (2GB+ recommended)
+✓ Raspbian/Raspberry Pi OS
+✓ Camera (optional, for QR scanning)
+
+📚 MORE INFO
+------------
+Full guide: RUN_ON_RASPBERRY_PI.md
+Setup help: SETUP_GUIDE.md
+
+💡 TIPS
+-------
+• Use a mouse for best experience
+• Close other apps for better performance
+• Enable camera before using QR scanner
+• Use USB stick for backups
+
+ENJOY YOUR INVENTORY SYSTEM! 🚰
