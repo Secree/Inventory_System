@@ -1,0 +1,263 @@
+================================================================================
+    PRESSURE SENSOR WIRING CONNECTIONS FOR RASPBERRY PI
+    Water Gallon Leak Detection System
+================================================================================
+
+OPTION 1: ANALOG PRESSURE SENSOR (MPX5700AP) with MCP3008 ADC
+--------------------------------------------------------------
+Recommended for water gallon leak detection
+
+WHAT YOU NEED:
+- MPX5700AP Pressure Sensor ($10-20)
+- MCP3008 ADC Chip ($4)
+- Breadboard
+- 10 Jumper Wires
+- Pressure fitting to connect to gallon valve
+
+
+STEP 1: CONNECT PRESSURE SENSOR TO MCP3008
+-------------------------------------------
+Pressure Sensor MPX5700AP:
+  Pin 1 (Vout/Signal) ---> MCP3008 Pin 1 (CH0)
+  Pin 2 (GND)         ---> Breadboard GND rail
+  Pin 3 (+5V)         ---> Breadboard +5V rail
+
+
+STEP 2: CONNECT MCP3008 POWER PINS
+-----------------------------------
+MCP3008 --> Raspberry Pi:
+  Pin 16 (VDD)   ---> Pi Pin 1  (3.3V)
+  Pin 15 (VREF)  ---> Pi Pin 1  (3.3V)
+  Pin 14 (AGND)  ---> Pi Pin 6  (GND)
+  Pin 9  (DGND)  ---> Pi Pin 6  (GND)
+
+
+STEP 3: CONNECT MCP3008 SPI PINS TO RASPBERRY PI
+-------------------------------------------------
+MCP3008 --> Raspberry Pi GPIO:
+  Pin 13 (CLK)   ---> Pi Pin 23 (GPIO11/SCLK)
+  Pin 12 (DOUT)  ---> Pi Pin 21 (GPIO9/MISO)
+  Pin 11 (DIN)   ---> Pi Pin 19 (GPIO10/MOSI)
+  Pin 10 (CS)    ---> Pi Pin 24 (GPIO8/CE0)
+
+
+STEP 4: CONNECT BREADBOARD POWER RAILS
+---------------------------------------
+Raspberry Pi --> Breadboard:
+  Pi Pin 2 (5V)  ---> Breadboard +5V rail ---> Pressure Sensor Pin 3
+  Pi Pin 6 (GND) ---> Breadboard GND rail ---> Pressure Sensor Pin 2
+
+
+COMPLETE CONNECTION SUMMARY:
+----------------------------
+PRESSURE SENSOR:
+  Pin 1 (Signal) ---> MCP3008 CH0 (Pin 1)
+  Pin 2 (GND)    ---> Breadboard GND ---> Raspberry Pi Pin 6
+  Pin 3 (+5V)    ---> Breadboard +5V  ---> Raspberry Pi Pin 2
+
+MCP3008 ADC:
+  Pin 1  (CH0)   <--- Pressure Sensor Signal
+  Pin 9  (DGND)  ---> Raspberry Pi Pin 6 (GND)
+  Pin 10 (CS)    ---> Raspberry Pi Pin 24 (GPIO8/CE0)
+  Pin 11 (DIN)   ---> Raspberry Pi Pin 19 (GPIO10/MOSI)
+  Pin 12 (DOUT)  ---> Raspberry Pi Pin 21 (GPIO9/MISO)
+  Pin 13 (CLK)   ---> Raspberry Pi Pin 23 (GPIO11/SCLK)
+  Pin 14 (AGND)  ---> Raspberry Pi Pin 6 (GND)
+  Pin 15 (VREF)  ---> Raspberry Pi Pin 1 (3.3V)
+  Pin 16 (VDD)   ---> Raspberry Pi Pin 1 (3.3V)
+
+RASPBERRY PI:
+  Pin 1  (3.3V)       ---> MCP3008 VDD & VREF
+  Pin 2  (5V)         ---> Breadboard +5V rail ---> Pressure Sensor +5V
+  Pin 6  (GND)        ---> MCP3008 GND pins & Pressure Sensor GND
+  Pin 19 (GPIO10)     ---> MCP3008 DIN
+  Pin 21 (GPIO9)      ---> MCP3008 DOUT
+  Pin 23 (GPIO11)     ---> MCP3008 CLK
+  Pin 24 (GPIO8)      ---> MCP3008 CS
+
+
+================================================================================
+
+OPTION 2: I2C DIGITAL SENSOR (BMP280) - SIMPLER BUT LESS SUITABLE
+------------------------------------------------------------------
+Only 4 wires needed, but measures air pressure (not ideal for water)
+
+BMP280 --> Raspberry Pi:
+  VCC ---> Pi Pin 1 (3.3V)
+  GND ---> Pi Pin 6 (GND)
+  SCL ---> Pi Pin 5 (GPIO3/SCL)
+  SDA ---> Pi Pin 3 (GPIO2/SDA)
+
+Note: BMP280 is for atmospheric pressure, not water pressure in gallons.
+      Use Option 1 for actual leak detection.
+
+
+================================================================================
+
+RASPBERRY PI GPIO PIN REFERENCE
+--------------------------------
+
+Pin Layout (USB ports facing you):
+
+     3.3V [ 1] [ 2] 5V
+    GPIO2 [ 3] [ 4] 5V
+    GPIO3 [ 5] [ 6] GND
+    GPIO4 [ 7] [ 8] GPIO14
+      GND [ 9] [10] GPIO15
+   GPIO17 [11] [12] GPIO18
+   GPIO27 [13] [14] GND
+   GPIO22 [15] [16] GPIO23
+     3.3V [17] [18] GPIO24
+GPIO10/MOSI [19] [20] GND
+ GPIO9/MISO [21] [22] GPIO25
+GPIO11/SCLK [23] [24] GPIO8/CE0
+      GND [25] [26] GPIO7
+
+
+MCP3008 CHIP PINOUT
+-------------------
+
+         Top View
+         (notch at top)
+    
+    CH0  [1]  [16] VDD
+    CH1  [2]  [15] VREF
+    CH2  [3]  [14] AGND
+    CH3  [4]  [13] CLK
+    CH4  [5]  [12] DOUT
+    CH5  [6]  [11] DIN
+    CH6  [7]  [10] CS
+    CH7  [8]  [ 9] DGND
+
+
+PRESSURE SENSOR MPX5700AP PINOUT
+---------------------------------
+
+    Pin 1: Vout (Signal Output) - 0.5V to 4.5V
+    Pin 2: GND (Ground)
+    Pin 3: Vcc (+5V Power)
+
+
+================================================================================
+
+SOFTWARE SETUP
+--------------
+
+1. Enable SPI on Raspberry Pi:
+   sudo raspi-config
+   --> Interface Options --> SPI --> Yes
+   --> Finish --> Reboot
+
+2. Install required libraries:
+   sudo pip3 install adafruit-circuitpython-mcp3xxx --break-system-packages
+
+3. Test the sensor:
+   cd ~/Inventory_System
+   python3 pressure_sensor.py
+
+4. Run main application:
+   python3 main.py
+
+
+================================================================================
+
+TESTING CHECKLIST
+-----------------
+
+Before Powering On:
+[ ] All wire connections double-checked
+[ ] No loose wires
+[ ] 3.3V goes to MCP3008 (NOT 5V!)
+[ ] 5V goes to pressure sensor (NOT 3.3V!)
+[ ] All grounds connected together
+[ ] No wires touching each other
+
+After Powering On:
+[ ] Raspberry Pi boots normally (green LED blinks)
+[ ] No smoke or hot components
+[ ] SPI enabled in raspi-config
+[ ] Libraries installed
+[ ] Test script runs without errors
+
+
+================================================================================
+
+PRESSURE VALUES REFERENCE
+--------------------------
+
+Typical Water Gallon Pressure:
+  - Sealed gallon: 20-40 PSI (normal)
+  - Pressurized gallon: 30-60 PSI
+  - Atmospheric: 14.7 PSI (at sea level)
+
+Leak Detection Threshold:
+  - 5% pressure drop in 30 seconds = LEAK
+  - 10% drop = Major leak
+  - 20%+ drop = Critical leak
+
+
+================================================================================
+
+TROUBLESHOOTING
+---------------
+
+Problem: Sensor not detected
+Solution: 
+  - Check SPI is enabled: lsmod | grep spi
+  - Check wiring connections
+  - Verify power (3.3V to MCP3008, 5V to sensor)
+
+Problem: Reading 0 or garbage values
+Solution:
+  - Check sensor signal wire to CH0
+  - Verify sensor has 5V power
+  - Check all ground connections
+
+Problem: "ModuleNotFoundError"
+Solution:
+  - Install libraries: sudo pip3 install adafruit-circuitpython-mcp3xxx
+
+Problem: Pressure readings too high/low
+Solution:
+  - Calibrate sensor with known pressure source
+  - Check sensor is MPX5700AP (0-100 PSI range)
+  - Adjust conversion formula in code
+
+
+================================================================================
+
+SHOPPING LINKS (Example)
+-------------------------
+
+Amazon:
+  - MPX5700AP: Search "MPX5700AP pressure sensor"
+  - MCP3008: Search "MCP3008 ADC chip"
+  - Breadboard: Search "400 tie point breadboard"
+  - Jumper wires: Search "male to female jumper wires"
+
+Adafruit:
+  - MCP3008: Product ID 856
+  - Breadboard: Product ID 64
+
+Alternative Sensors:
+  - MPXV5050GP (0-50 PSI)
+  - MPXV7002DP (differential pressure)
+  - HX710B (digital load cell amplifier)
+
+
+================================================================================
+
+TOTAL COST: $25-40 USD
+Time to build: 30-60 minutes
+Difficulty: Intermediate
+
+================================================================================
+
+For more detailed information, see:
+  - PRESSURE_SENSOR_SETUP.md (complete guide)
+  - pressure_sensor.py (software code)
+  - QUICK_START_LEAK_DETECTION.md (usage guide)
+
+================================================================================
+END OF WIRING GUIDE
+================================================================================
