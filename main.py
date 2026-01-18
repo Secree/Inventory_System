@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Main Application - Water Gallon Inventory Management System
 GUI interface for managing water gallon inventory with QR codes
@@ -12,9 +11,6 @@ from qr_scanner import QRCodeScanner
 from text_logger import TextFileLogger
 from pressure_sensor import PressureSensor
 import os
-import sys
-import subprocess
-import platform
 from datetime import datetime
 from PIL import Image, ImageTk
 import matplotlib.pyplot as plt
@@ -71,9 +67,6 @@ class InventoryApp:
         # Track canvas widgets for scrolling
         self.canvas_widgets = {}
         
-        # Track processing state to prevent multiple clicks
-        self.is_processing = False
-        
         # Bind F11 for fullscreen toggle
         self.root.bind('<F11>', lambda e: self.toggle_fullscreen())
         self.root.bind('<Escape>', lambda e: self.exit_fullscreen())
@@ -87,29 +80,6 @@ class InventoryApp:
         # Bind global mouse wheel scrolling
         self.root.bind_all("<MouseWheel>", self.on_mousewheel_global)
     
-    def open_file_explorer(self, path):
-        """Open file explorer in a cross-platform way"""
-        try:
-            if platform.system() == 'Windows':
-                os.startfile(path)
-            elif platform.system() == 'Darwin':  # macOS
-                subprocess.Popen(['open', path])
-            else:  # Linux and others
-                subprocess.Popen(['xdg-open', path])
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not open file explorer: {str(e)}")
-    
-    def bind_button_hover(self, button, enter_color, leave_color):
-        """Bind hover effects to a button"""
-        def on_enter(e):
-            button['background'] = enter_color
-        
-        def on_leave(e):
-            button['background'] = leave_color
-        
-        button.bind("<Enter>", on_enter)
-        button.bind("<Leave>", on_leave)
-    
     def setup_ui(self):
         """Setup the user interface"""
         # Compact Title for small screens
@@ -119,7 +89,7 @@ class InventoryApp:
         
         title_label = tk.Label(
             title_frame,
-            text="💧 Water Gallon Inventory",
+            text="🚰 Water Gallon Inventory",
             font=("Arial", 14, "bold"),
             bg="#2c3e50",
             fg="white"
@@ -136,12 +106,10 @@ class InventoryApp:
             font=("Arial", 16, "bold"),
             cursor="hand2",
             relief=tk.FLAT,
-            bd=0,
             padx=15,
             pady=5
         )
         fullscreen_btn.place(relx=0.98, rely=0.5, anchor=tk.E)
-        self.bind_button_hover(fullscreen_btn, "#2c3e50", "#34495e")
         
         # Main container with notebook (tabs) for small screens
         main_container = tk.Frame(self.root)
@@ -161,7 +129,7 @@ class InventoryApp:
         
         # Tab 2: Controls (Add & Scan)
         controls_tab = tk.Frame(self.notebook)
-        self.notebook.add(controls_tab, text="⊕ Add/Scan")
+        self.notebook.add(controls_tab, text="➕ Add/Scan")
         
         # Create scrollable frame for controls
         canvas = tk.Canvas(controls_tab)
@@ -242,24 +210,20 @@ class InventoryApp:
         self.graph_canvas_frame.pack(fill=tk.BOTH, expand=True)
         
         # Refresh button for graphs
-        refresh_btn = tk.Button(
+        tk.Button(
             stats_frame,
-            text="↻ Refresh Graphs",
+            text="🔄 Refresh Graphs",
             command=self.update_graphs,
             bg="#3498db",
             fg="white",
             font=("Arial", 10, "bold"),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             pady=5
-        )
-        refresh_btn.pack(fill=tk.X, pady=(10, 0))
-        self.bind_button_hover(refresh_btn, "#2980b9", "#3498db")
+        ).pack(fill=tk.X, pady=(10, 0))
     
     def setup_add_gallon_panel(self, parent):
         """Setup add gallon panel"""
-        add_frame = tk.LabelFrame(parent, text="⊕ Add New Gallon", font=("Arial", 11, "bold"), padx=10, pady=10)
+        add_frame = tk.LabelFrame(parent, text="➕ Add New Gallon", font=("Arial", 11, "bold"), padx=10, pady=10)
         add_frame.pack(fill=tk.X, padx=10, pady=10)
         
         # Auto-generated ID display (read-only)
@@ -272,13 +236,12 @@ class InventoryApp:
         self.name_entry = tk.Entry(add_frame, font=("Arial", 11))
         self.name_entry.pack(fill=tk.X, pady=(0, 10), ipady=5)
         self.name_entry.bind('<KeyRelease>', lambda e: self.update_id_preview())
-        self.name_entry.bind('<Return>', lambda e: self.add_gallon())  # Press Enter to add
         
         # Buttons
         btn_frame = tk.Frame(add_frame)
         btn_frame.pack(fill=tk.X)
         
-        add_btn = tk.Button(
+        tk.Button(
             btn_frame,
             text="Add & Generate QR",
             command=self.add_gallon,
@@ -286,14 +249,10 @@ class InventoryApp:
             fg="white",
             font=("Arial", 10, "bold"),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             pady=8
-        )
-        add_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
-        self.bind_button_hover(add_btn, "#229954", "#27ae60")
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
         
-        clear_btn = tk.Button(
+        tk.Button(
             btn_frame,
             text="Clear",
             command=self.clear_form,
@@ -301,12 +260,8 @@ class InventoryApp:
             fg="white",
             font=("Arial", 10),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             pady=8
-        )
-        clear_btn.pack(side=tk.RIGHT, expand=True, fill=tk.X)
-        self.bind_button_hover(clear_btn, "#7f8c8d", "#95a5a6")
+        ).pack(side=tk.RIGHT, expand=True, fill=tk.X)
     
     def setup_qr_scanner_panel(self, parent):
         """Setup QR scanner panel"""
@@ -320,7 +275,7 @@ class InventoryApp:
             fg="gray"
         ).pack(pady=(0, 8))
         
-        camera_btn = tk.Button(
+        tk.Button(
             scanner_frame,
             text="📷 Scan from Camera",
             command=self.scan_from_camera,
@@ -328,27 +283,19 @@ class InventoryApp:
             fg="white",
             font=("Arial", 10, "bold"),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             pady=8
-        )
-        camera_btn.pack(fill=tk.X, pady=3)
-        self.bind_button_hover(camera_btn, "#2980b9", "#3498db")
+        ).pack(fill=tk.X, pady=3)
         
-        image_btn = tk.Button(
+        tk.Button(
             scanner_frame,
-            text="🖼 Scan from Image",
+            text="🖼️ Scan from Image",
             command=self.scan_from_image,
             bg="#9b59b6",
             fg="white",
             font=("Arial", 10, "bold"),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             pady=8
-        )
-        image_btn.pack(fill=tk.X, pady=3)
-        self.bind_button_hover(image_btn, "#8e44ad", "#9b59b6")
+        ).pack(fill=tk.X, pady=3)
     
     def setup_quick_actions_panel(self, parent):
         """Setup quick actions panel"""
@@ -390,7 +337,7 @@ class InventoryApp:
         self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5), ipady=3)
         self.search_entry.bind('<KeyRelease>', lambda e: self.refresh_inventory_list())
         
-        refresh_list_btn = tk.Button(
+        tk.Button(
             search_frame,
             text="↻",
             command=self.refresh_inventory_list,
@@ -398,13 +345,9 @@ class InventoryApp:
             cursor="hand2",
             bg="#3498db",
             fg="white",
-            relief=tk.RAISED,
-            bd=2,
             padx=8,
             pady=2
-        )
-        refresh_list_btn.pack(side=tk.RIGHT)
-        self.bind_button_hover(refresh_list_btn, "#2980b9", "#3498db")
+        ).pack(side=tk.RIGHT)
         
         # Treeview - Scrollbars
         vsb = ttk.Scrollbar(list_frame, orient="vertical")
@@ -456,15 +399,15 @@ class InventoryApp:
         action_button_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         
         touch_buttons = [
-            ("■", self.view_qr_selected, "#3498db", "#2980b9"),
-            ("⊕", self.refill_selected, "#27ae60", "#229954"),
-            ("▲", self.defect_selected, "#e74c3c", "#c0392b"),
-            ("?", self.view_details, "#9b59b6", "#8e44ad"),
-            ("✗", self.delete_selected, "#95a5a6", "#7f8c8d")
+            ("📱", self.view_qr_selected, "#3498db"),
+            ("➕", self.refill_selected, "#27ae60"),
+            ("⚠️", self.defect_selected, "#e74c3c"),
+            ("🔍", self.view_details, "#9b59b6"),
+            ("🗑️", self.delete_selected, "#95a5a6")
         ]
         
-        for text, command, color, hover_color in touch_buttons:
-            btn = tk.Button(
+        for text, command, color in touch_buttons:
+            tk.Button(
                 action_button_frame,
                 text=text,
                 command=command,
@@ -472,12 +415,8 @@ class InventoryApp:
                 fg="white",
                 font=("Arial", 14),
                 cursor="hand2",
-                relief=tk.RAISED,
-                bd=2,
                 pady=5
-            )
-            btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-            self.bind_button_hover(btn, hover_color, color)
+            ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         
         # Context menu (still available for non-touch devices)
         self.tree.bind("<Button-3>", self.show_context_menu)
@@ -485,99 +424,67 @@ class InventoryApp:
     
     def add_gallon(self):
         """Add a new gallon and generate QR code"""
-        if self.is_processing:
-            return  # Prevent multiple clicks
-        
         name = self.name_entry.get().strip()
         
         if not name:
             messagebox.showwarning("Input Error", "Please enter Gallon Name")
-            self.name_entry.focus_set()
             return
         
-        self.is_processing = True
-        self.root.config(cursor="watch")
-        self.root.update()
+        # Auto-generate inventory ID
+        inventory_id = self.db.generate_inventory_id()
         
-        try:
-            # Auto-generate inventory ID
-            inventory_id = self.db.generate_inventory_id()
+        # Add to database
+        success, message = self.db.add_gallon(inventory_id, name)
+        
+        if success:
+            # Generate QR code
+            qr_success, qr_message, qr_path = self.qr_gen.generate_qr_with_label(inventory_id, name)
             
-            # Add to database
-            success, message = self.db.add_gallon(inventory_id, name)
-            
-            if success:
-                # Generate QR code
-                qr_success, qr_message, qr_path = self.qr_gen.generate_qr_with_label(inventory_id, name)
+            if qr_success:
+                # Log to text file
+                self.logger.log_activity(inventory_id, 'ADDED', f'New gallon "{name}" added')
                 
-                if qr_success:
-                    # Log to text file
-                    self.logger.log_activity(inventory_id, 'ADDED', f'New gallon "{name}" added')
-                    
-                    messagebox.showinfo(
-                        "Success",
-                        f"Gallon added successfully!\n\nQR Code saved to:\n{qr_path}"
-                    )
-                    
-                    self.clear_form()
-                    self.refresh_inventory_list()
-                    self.update_statistics()
-                    
-                    # Display QR code in app
-                    self.display_qr_code(qr_path, inventory_id, name)
-                else:
-                    messagebox.showerror("QR Error", qr_message)
+                messagebox.showinfo(
+                    "Success",
+                    f"Gallon added successfully!\n\nQR Code saved to:\n{qr_path}"
+                )
+                
+                self.clear_form()
+                self.refresh_inventory_list()
+                self.update_statistics()
+                
+                # Display QR code in app
+                self.display_qr_code(qr_path, inventory_id, name)
             else:
-                messagebox.showerror("Error", message)
-        finally:
-            self.is_processing = False
-            self.root.config(cursor="")
+                messagebox.showerror("QR Error", qr_message)
+        else:
+            messagebox.showerror("Error", message)
     
     def scan_from_camera(self):
         """Scan QR code from camera"""
-        if self.is_processing:
-            return  # Prevent multiple clicks
+        messagebox.showinfo("Camera Scan", "Camera will open. Point at QR code.\nPress 'Q' to cancel.")
         
-        self.is_processing = True
-        self.root.config(cursor="watch")
+        success, data, message = self.qr_scanner.scan_from_camera()
         
-        try:
-            messagebox.showinfo("Camera Scan", "Camera will open. Point at QR code.\nPress 'Q' to cancel.")
-            
-            success, data, message = self.qr_scanner.scan_from_camera()
-            
-            if success:
-                self.process_scanned_qr(data)
-            else:
-                messagebox.showwarning("Scan Failed", message)
-        finally:
-            self.is_processing = False
-            self.root.config(cursor="")
+        if success:
+            self.process_scanned_qr(data)
+        else:
+            messagebox.showwarning("Scan Failed", message)
     
     def scan_from_image(self):
         """Scan QR code from image file"""
-        if self.is_processing:
-            return  # Prevent multiple clicks
-        
         file_path = filedialog.askopenfilename(
             title="Select QR Code Image",
             filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp"), ("All files", "*.*")]
         )
         
         if file_path:
-            self.is_processing = True
-            self.root.config(cursor="watch")
+            success, data, message = self.qr_scanner.scan_from_image(file_path)
             
-            try:
-                success, data, message = self.qr_scanner.scan_from_image(file_path)
-                
-                if success:
-                    self.process_scanned_qr(data)
-                else:
-                    messagebox.showerror("Scan Failed", message)
-            finally:
-                self.is_processing = False
-                self.root.config(cursor="")
+            if success:
+                self.process_scanned_qr(data)
+            else:
+                messagebox.showerror("Scan Failed", message)
     
     def process_scanned_qr(self, data):
         """Process scanned QR code data - Show choice between Refill and Defect"""
@@ -593,8 +500,6 @@ class InventoryApp:
         action_window.title("Choose Action")
         action_window.geometry("500x450")
         action_window.transient(self.root)
-        action_window.lift()
-        action_window.focus_force()
         action_window.grab_set()
         
         # Display info
@@ -619,40 +524,32 @@ class InventoryApp:
         action_frame = tk.Frame(action_window)
         action_frame.pack(fill=tk.BOTH, padx=20, pady=10)
         
-        refill_btn = tk.Button(
+        tk.Button(
             action_frame,
-            text="⊕ REFILL",
+            text="➕ REFILL",
             command=lambda: self.record_refill(inventory_id, action_window),
             bg="#27ae60",
             fg="white",
             font=("Arial", 16, "bold"),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=3,
             pady=18
-        )
-        refill_btn.pack(fill=tk.X, pady=8)
-        self.bind_button_hover(refill_btn, "#229954", "#27ae60")
+        ).pack(fill=tk.X, pady=8)
         
         if gallon['status'] == 'active':
-            defect_btn = tk.Button(
+            tk.Button(
                 action_frame,
-                text="▲ DEFECT",
+                text="⚠️ DEFECT",
                 command=lambda: self.report_defect(inventory_id, action_window),
                 bg="#e74c3c",
                 fg="white",
                 font=("Arial", 16, "bold"),
                 cursor="hand2",
-                relief=tk.RAISED,
-                bd=3,
                 pady=18
-            )
-            defect_btn.pack(fill=tk.X, pady=8)
-            self.bind_button_hover(defect_btn, "#c0392b", "#e74c3c")
+            ).pack(fill=tk.X, pady=8)
             
             # Add Leak Detection button if pressure sensor is available
             if self.pressure_sensor:
-                leak_btn = tk.Button(
+                tk.Button(
                     action_frame,
                     text="🔍 TEST FOR LEAKS",
                     command=lambda: self.start_leak_detection(inventory_id, action_window),
@@ -660,14 +557,10 @@ class InventoryApp:
                     fg="white",
                     font=("Arial", 16, "bold"),
                     cursor="hand2",
-                    relief=tk.RAISED,
-                    bd=3,
                     pady=18
-                )
-                leak_btn.pack(fill=tk.X, pady=8)
-                self.bind_button_hover(leak_btn, "#e67e22", "#f39c12")
+                ).pack(fill=tk.X, pady=8)
         else:
-            fix_btn = tk.Button(
+            tk.Button(
                 action_frame,
                 text="✅ FIX DEFECT",
                 command=lambda: self.fix_defect(inventory_id, action_window),
@@ -675,14 +568,10 @@ class InventoryApp:
                 fg="white",
                 font=("Arial", 16, "bold"),
                 cursor="hand2",
-                relief=tk.RAISED,
-                bd=3,
                 pady=18
-            )
-            fix_btn.pack(fill=tk.X, pady=8)
-            self.bind_button_hover(fix_btn, "#2980b9", "#3498db")
+            ).pack(fill=tk.X, pady=8)
         
-        cancel_btn = tk.Button(
+        tk.Button(
             action_frame,
             text="Cancel",
             command=action_window.destroy,
@@ -690,12 +579,8 @@ class InventoryApp:
             fg="white",
             font=("Arial", 12),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             pady=12
-        )
-        cancel_btn.pack(fill=tk.X, pady=8)
-        self.bind_button_hover(cancel_btn, "#7f8c8d", "#95a5a6")
+        ).pack(fill=tk.X, pady=8)
         
         # Center the window
         action_window.update_idletasks()
@@ -712,8 +597,6 @@ class InventoryApp:
             qr_window = tk.Toplevel(self.root)
             qr_window.title(f"QR Code - {inventory_id}")
             qr_window.transient(self.root)
-            qr_window.lift()
-            qr_window.focus_force()
             
             # Load and display image
             img = Image.open(qr_path)
@@ -755,22 +638,18 @@ class InventoryApp:
             button_frame = tk.Frame(frame)
             button_frame.pack(pady=(15, 0))
             
-            open_folder_btn = tk.Button(
+            tk.Button(
                 button_frame,
                 text="Open in File Explorer",
-                command=lambda: self.open_file_explorer(os.path.dirname(qr_path)),
+                command=lambda: os.startfile(os.path.dirname(qr_path)),
                 bg="#3498db",
                 fg="white",
                 font=("Arial", 10),
                 cursor="hand2",
-                relief=tk.RAISED,
-                bd=2,
                 padx=10
-            )
-            open_folder_btn.pack(side=tk.LEFT, padx=5)
-            self.bind_button_hover(open_folder_btn, "#2980b9", "#3498db")
+            ).pack(side=tk.LEFT, padx=5)
             
-            close_btn = tk.Button(
+            tk.Button(
                 button_frame,
                 text="Close",
                 command=qr_window.destroy,
@@ -778,12 +657,8 @@ class InventoryApp:
                 fg="white",
                 font=("Arial", 10),
                 cursor="hand2",
-                relief=tk.RAISED,
-                bd=2,
                 padx=20
-            )
-            close_btn.pack(side=tk.LEFT, padx=5)
-            self.bind_button_hover(close_btn, "#7f8c8d", "#95a5a6")
+            ).pack(side=tk.LEFT, padx=5)
             
             # Center the window
             qr_window.update_idletasks()
@@ -856,8 +731,6 @@ class InventoryApp:
         monitor_window.title(f"Leak Detection - {inventory_id}")
         monitor_window.geometry("500x400")
         monitor_window.transient(self.root)
-        monitor_window.lift()
-        monitor_window.focus_force()
         monitor_window.grab_set()
         
         # Instructions
@@ -909,12 +782,9 @@ class InventoryApp:
             fg="white",
             font=("Arial", 11),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             padx=20
         )
         cancel_btn.pack(pady=10)
-        self.bind_button_hover(cancel_btn, "#7f8c8d", "#95a5a6")
         
         # Start monitoring
         def leak_callback(inv_id, drop_pct, baseline, current):
@@ -1031,7 +901,7 @@ class InventoryApp:
         
         if success:
             if messagebox.askyesno("Success", f"{message}\n\nDo you want to open the report?"):
-                self.open_file_explorer(file_path)
+                os.startfile(file_path)
         else:
             messagebox.showerror("Error", message)
     
@@ -1204,7 +1074,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             
             menu = tk.Menu(self.root, tearoff=0)
             menu.add_command(label="View Details", command=self.view_details)
-            menu.add_command(label="■ View QR Code", command=self.view_qr_selected)
+            menu.add_command(label="📱 View QR Code", command=self.view_qr_selected)
             menu.add_separator()
             menu.add_command(label="Record Refill", command=self.refill_selected)
             menu.add_command(label="Report Defect", command=self.defect_selected)
@@ -1229,9 +1099,6 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         details_window = tk.Toplevel(self.root)
         details_window.title(f"Details - {inventory_id}")
         details_window.geometry("900x600")
-        details_window.transient(self.root)
-        details_window.lift()
-        details_window.focus_force()
         
         # Main container with two columns
         main_frame = tk.Frame(details_window)
@@ -1300,21 +1167,17 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 path_label.pack(pady=(10, 0))
                 
                 # Open folder button
-                open_btn = tk.Button(
+                tk.Button(
                     qr_frame,
                     text="Open Folder",
-                    command=lambda: self.open_file_explorer(os.path.dirname(qr_path)),
+                    command=lambda: os.startfile(os.path.dirname(qr_path)),
                     bg="#3498db",
                     fg="white",
                     font=("Arial", 9),
                     cursor="hand2",
-                    relief=tk.RAISED,
-                    bd=2,
                     padx=15,
                     pady=5
-                )
-                open_btn.pack(pady=(10, 0))
-                self.bind_button_hover(open_btn, "#2980b9", "#3498db")
+                ).pack(pady=(10, 0))
                 
             except Exception as e:
                 tk.Label(
@@ -1333,7 +1196,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 fg="gray"
             ).pack(pady=20)
             
-            gen_qr_btn = tk.Button(
+            tk.Button(
                 qr_frame,
                 text="Generate QR Code",
                 command=lambda: self.generate_missing_qr(inventory_id, gallon['name'], details_window),
@@ -1341,19 +1204,15 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 fg="white",
                 font=("Arial", 10, "bold"),
                 cursor="hand2",
-                relief=tk.RAISED,
-                bd=2,
                 padx=20,
                 pady=10
-            )
-            gen_qr_btn.pack(pady=10)
-            self.bind_button_hover(gen_qr_btn, "#229954", "#27ae60")
+            ).pack(pady=10)
         
         # Bottom buttons
         button_frame = tk.Frame(details_window)
         button_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
         
-        close_details_btn = tk.Button(
+        tk.Button(
             button_frame,
             text="Close",
             command=details_window.destroy,
@@ -1361,13 +1220,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             fg="white",
             font=("Arial", 10),
             cursor="hand2",
-            relief=tk.RAISED,
-            bd=2,
             padx=30,
             pady=8
-        )
-        close_details_btn.pack(side=tk.RIGHT, padx=5)
-        self.bind_button_hover(close_details_btn, "#7f8c8d", "#95a5a6")
+        ).pack(side=tk.RIGHT, padx=5)
     
     def generate_missing_qr(self, inventory_id, name, parent_window):
         """Generate QR code that's missing and refresh the details window"""
@@ -1441,7 +1296,6 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Clear input form"""
         self.name_entry.delete(0, tk.END)
         self.update_id_preview()
-        self.name_entry.focus_set()  # Set focus back to name entry
     
     def update_id_preview(self):
         """Update the preview of the next auto-generated ID"""
