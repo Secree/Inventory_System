@@ -59,9 +59,9 @@ class InventoryApp:
                 threshold=5.0,         # 5% pressure drop triggers leak
                 monitoring_duration=30 # Monitor for 30 seconds
             )
-            print("✅ Pressure sensor initialized")
+            print("[SUCCESS] Pressure sensor initialized")
         except Exception as e:
-            print(f"⚠️ Pressure sensor not available: {e}")
+            print(f"[WARNING] Pressure sensor not available: {e}")
             self.pressure_sensor = None
         
         # Track canvas widgets for scrolling
@@ -89,7 +89,7 @@ class InventoryApp:
         
         title_label = tk.Label(
             title_frame,
-            text="🚰 Water Gallon Inventory",
+            text="Water Gallon Inventory",
             font=("Arial", 14, "bold"),
             bg="#2c3e50",
             fg="white"
@@ -99,7 +99,7 @@ class InventoryApp:
         # Fullscreen toggle button
         fullscreen_btn = tk.Button(
             title_frame,
-            text="⛶",
+            text="Full Screen",
             command=self.toggle_fullscreen,
             bg="#34495e",
             fg="white",
@@ -124,12 +124,12 @@ class InventoryApp:
         
         # Tab 1: Inventory List
         inventory_tab = tk.Frame(self.notebook)
-        self.notebook.add(inventory_tab, text="📦 Inventory")
+        self.notebook.add(inventory_tab, text="Inventory")
         self.setup_inventory_list(inventory_tab)
         
         # Tab 2: Controls (Add & Scan)
         controls_tab = tk.Frame(self.notebook)
-        self.notebook.add(controls_tab, text="➕ Add/Scan")
+        self.notebook.add(controls_tab, text="Add/Scan")
         
         # Create scrollable frame for controls
         canvas = tk.Canvas(controls_tab)
@@ -156,7 +156,7 @@ class InventoryApp:
         
         # Tab 3: Statistics
         stats_tab = tk.Frame(self.notebook)
-        self.notebook.add(stats_tab, text="📊 Stats")
+        self.notebook.add(stats_tab, text="Stats")
         self.setup_statistics_panel(stats_tab)
     
     def setup_statistics_panel(self, parent):
@@ -181,7 +181,7 @@ class InventoryApp:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Stats cards at top
-        stats_frame = tk.LabelFrame(stats_container, text="📊 Statistics", font=("Arial", 12, "bold"), padx=10, pady=10)
+        stats_frame = tk.LabelFrame(stats_container, text="Statistics", font=("Arial", 12, "bold"), padx=10, pady=10)
         stats_frame.pack(fill=tk.X, padx=10, pady=10)
         
         self.stats_labels = {}
@@ -202,7 +202,7 @@ class InventoryApp:
             self.stats_labels[key].pack(side=tk.RIGHT)
         
         # Graphs section
-        graph_frame = tk.LabelFrame(stats_container, text="📈 Visual Analytics", font=("Arial", 12, "bold"), padx=10, pady=10)
+        graph_frame = tk.LabelFrame(stats_container, text="Visual Analytics", font=("Arial", 12, "bold"), padx=10, pady=10)
         graph_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Create frame to hold graphs
@@ -223,7 +223,7 @@ class InventoryApp:
     
     def setup_add_gallon_panel(self, parent):
         """Setup add gallon panel"""
-        add_frame = tk.LabelFrame(parent, text="➕ Add New Gallon", font=("Arial", 11, "bold"), padx=10, pady=10)
+        add_frame = tk.LabelFrame(parent, text="Add New Gallon", font=("Arial", 11, "bold"), padx=10, pady=10)
         add_frame.pack(fill=tk.X, padx=10, pady=10)
         
         # Auto-generated ID display (read-only)
@@ -265,7 +265,7 @@ class InventoryApp:
     
     def setup_qr_scanner_panel(self, parent):
         """Setup QR scanner panel"""
-        scanner_frame = tk.LabelFrame(parent, text="📷 QR Code Scanner", font=("Arial", 11, "bold"), padx=10, pady=10)
+        scanner_frame = tk.LabelFrame(parent, text="QR Code Scanner", font=("Arial", 11, "bold"), padx=10, pady=10)
         scanner_frame.pack(fill=tk.X, padx=10, pady=10)
         
         tk.Label(
@@ -277,7 +277,7 @@ class InventoryApp:
         
         tk.Button(
             scanner_frame,
-            text="📷 Scan from Camera",
+            text="Scan from Camera",
             command=self.scan_from_camera,
             bg="#3498db",
             fg="white",
@@ -288,7 +288,7 @@ class InventoryApp:
         
         tk.Button(
             scanner_frame,
-            text="🖼️ Scan from Image",
+            text="Scan from Image",
             command=self.scan_from_image,
             bg="#9b59b6",
             fg="white",
@@ -399,11 +399,11 @@ class InventoryApp:
         action_button_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         
         touch_buttons = [
-            ("📱", self.view_qr_selected, "#3498db"),
-            ("➕", self.refill_selected, "#27ae60"),
-            ("⚠️", self.defect_selected, "#e74c3c"),
-            ("🔍", self.view_details, "#9b59b6"),
-            ("🗑️", self.delete_selected, "#95a5a6")
+            ("View", self.view_qr_selected, "#3498db"),
+            ("Refill", self.refill_selected, "#27ae60"),
+            ("Defect", self.defect_selected, "#e74c3c"),
+            ("View", self.view_details, "#9b59b6"),
+            ("Delete", self.delete_selected, "#95a5a6")
         ]
         
         for text, command, color in touch_buttons:
@@ -526,7 +526,7 @@ class InventoryApp:
         
         tk.Button(
             action_frame,
-            text="➕ REFILL",
+            text="REFILL",
             command=lambda: self.record_refill(inventory_id, action_window),
             bg="#27ae60",
             fg="white",
@@ -538,7 +538,7 @@ class InventoryApp:
         if gallon['status'] == 'active':
             tk.Button(
                 action_frame,
-                text="⚠️ DEFECT",
+                text="DEFECT",
                 command=lambda: self.report_defect(inventory_id, action_window),
                 bg="#e74c3c",
                 fg="white",
