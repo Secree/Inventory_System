@@ -112,7 +112,193 @@ sudo usermod -a -G video $USER
 # Logout and login for changes to take effect
 ```
 
-## 🐛 Troubleshooting
+## � USB Handheld Scanner (MH-ET LIVE)
+
+### What is MH-ET LIVE Scanner?
+MH-ET LIVE and similar USB handheld QR/barcode scanners are plug-and-play devices that:
+- Act as USB HID keyboards (no drivers needed)
+- Show red light when button pressed, white light when scanning
+- Automatically "type" scanned data and press Enter
+- Work perfectly with Raspberry Pi
+
+### Setup on Raspberry Pi
+
+#### 1. Physical Connection
+```bash
+# Simply plug the USB scanner into any USB port
+# Pi will automatically detect it as a keyboard
+
+# Verify detection
+lsusb
+# You should see an entry like: "Bus 001 Device 004: ID 05e0:1200 Symbol Technologies"
+# or similar USB HID device
+
+# Check input devices
+ls /dev/input/event*
+# Scanner will appear as an event device
+```
+
+#### 2. Grant Permissions (if needed)
+```bash
+# Add user to input group for scanner access
+sudo usermod -a -G input $USER
+
+# Logout and login for changes to take effect
+exit
+# Then log back in
+```
+
+#### 3. Test Scanner
+```bash
+# Open a text editor
+nano test.txt
+
+# Press scanner button and scan a QR code
+# The data should appear in the text file automatically
+
+# If it works, you're ready to use it with the app!
+```
+
+### Using Scanner with the Application
+
+#### 1. Launch the Application
+```bash
+cd ~/Inventory_System
+python3 main.py
+```
+
+#### 2. Navigate to Scanner
+- Go to **"Add/Scan"** tab
+- You'll see **"🔴 Handheld Scanner (MH-ET LIVE)"** section at the top
+- Click in the **yellow input field**
+
+#### 3. Scan QR Codes
+1. **Click the yellow input field** (cursor should be blinking inside)
+2. **Point scanner** at QR code on gallon
+3. **Press scanner button** (shows red light)
+4. Scanner detects QR code (shows white light)
+5. Data automatically appears in field
+6. **Action dialog opens automatically** with options:
+   - ✅ REFILL - Record refill
+   - ❌ DEFECT - Report defect
+   - 🔍 TEST FOR LEAKS - Run leak detection (if sensor connected)
+   - ✓ FIX DEFECT - Mark as fixed (if already defective)
+
+#### 4. Rapid Scanning
+You can scan multiple gallons quickly:
+- Scan → Choose action → Scan next
+- No need to click field again (stays focused)
+- Perfect for batch processing!
+
+### Scanner Troubleshooting on Pi
+
+#### Scanner Not Working
+```bash
+# 1. Check if detected
+lsusb | grep -i "symbol\|barcode\|scanner"
+
+# 2. Check permissions
+groups $USER
+# Should show: 'input' group
+
+# 3. Test in terminal
+cat /dev/input/event0  # Try event0, event1, etc.
+# Then scan - you should see binary output
+
+# 4. Reboot if just plugged in
+sudo reboot
+```
+
+#### Data Not Appearing
+- Make sure **input field has focus** (cursor blinking)
+- Try clicking field again before scanning
+- Check if keyboard layout is correct: `sudo raspi-config` → Localisation
+- Test scanner in text editor first to verify it works
+
+#### Wrong Characters Appearing
+```bash
+# Scanner might be set to wrong keyboard layout
+# Check Pi keyboard layout
+sudo raspi-config
+# → Localisation Options → Keyboard Layout
+# Set to your scanner's default (usually US)
+
+# Some scanners have configuration barcodes
+# Check scanner manual for keyboard layout config barcodes
+```
+
+### Recommended Scanner Settings
+
+Most MH-ET LIVE scanners can be configured by scanning special config QR codes:
+
+1. **Enable Enter/Return suffix** (scanner presses Enter after scan)
+   - This is usually enabled by default
+   - Allows auto-processing in the app
+
+2. **Set to USB-HID mode** (not serial)
+   - This makes it act as a keyboard
+   - Default mode for most models
+
+3. **Enable continuous scan mode** (optional)
+   - Hold button once, scan multiple codes
+   - Useful for batch processing
+
+4. **Set beep volume**
+   - Confirmation beep when QR detected
+   - Check scanner manual for config codes
+
+### Alternative: Wireless Scanner
+
+If using Bluetooth version:
+```bash
+# Enable Bluetooth
+sudo systemctl start bluetooth
+sudo systemctl enable bluetooth
+
+# Pair scanner
+bluetoothctl
+> power on
+> agent on
+> default-agent
+> scan on
+# Wait for scanner to appear
+> pair [MAC_ADDRESS]
+> trust [MAC_ADDRESS]
+> connect [MAC_ADDRESS]
+> quit
+```
+
+### Performance Tips
+
+- **Scanner works instantly** - faster than camera/image scanning
+- **Keep QR codes clean** - dirt affects scanning
+- **Good lighting helps** - scanner has built-in light but ambient light helps
+- **Hold steady** - scanner needs <1 second to read
+- **Distance**: 5-20cm from QR code works best
+
+### Pi-Specific Advantages
+
+✅ **Low power consumption** - Scanner uses <100mA
+✅ **No driver installation** - Works instantly on Pi OS
+✅ **No camera needed** - Save cost and USB port
+✅ **Faster than camera** - Instant scan vs camera focus time
+✅ **Works in any lighting** - Built-in LED illuminator
+✅ **Rugged design** - Better for warehouse/outdoor use
+
+### Multi-Scanner Setup
+
+You can connect multiple scanners:
+```bash
+# Each scanner acts as separate keyboard
+# They all work simultaneously
+# Useful for multiple workstations
+
+# Check all USB devices
+lsusb
+# Each scanner shows as separate device
+```
+
+## �🐛 Troubleshooting
 
 ### Camera Not Working
 ```bash

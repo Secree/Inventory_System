@@ -11,6 +11,7 @@ from qr_scanner import QRCodeScanner
 from text_logger import TextFileLogger
 from pressure_sensor import PressureSensor
 import os
+import re
 from datetime import datetime
 from PIL import Image, ImageTk
 import matplotlib.pyplot as plt
@@ -268,16 +269,72 @@ class InventoryApp:
         scanner_frame = tk.LabelFrame(parent, text="QR Code Scanner", font=("Arial", 11, "bold"), padx=10, pady=10)
         scanner_frame.pack(fill=tk.X, padx=10, pady=10)
         
+        # USB Handheld Scanner Input (MH-ET LIVE and similar)
+        usb_scanner_frame = tk.LabelFrame(
+            scanner_frame,
+            text="🔴 Handheld Scanner (MH-ET LIVE)",
+            font=("Arial", 10, "bold"),
+            padx=10,
+            pady=8,
+            fg="#e74c3c"
+        )
+        usb_scanner_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(
+            usb_scanner_frame,
+            text="Click field, press scanner button, scan QR code:",
+            font=("Arial", 9),
+            fg="gray"
+        ).pack(pady=(0, 5))
+        
+        # Input frame with entry and clear button
+        input_frame = tk.Frame(usb_scanner_frame)
+        input_frame.pack(fill=tk.X)
+        
+        self.scanner_input = tk.Entry(
+            input_frame,
+            font=("Arial", 12),
+            bg="#fff3cd",
+            fg="#000",
+            relief=tk.SOLID,
+            borderwidth=2
+        )
+        self.scanner_input.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8)
+        self.scanner_input.bind('<Return>', self.process_scanner_input)
+        self.scanner_input.bind('<KP_Enter>', self.process_scanner_input)  # Numpad Enter
+        
+        tk.Button(
+            input_frame,
+            text="✕",
+            command=lambda: self.scanner_input.delete(0, tk.END),
+            bg="#95a5a6",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            cursor="hand2",
+            width=3
+        ).pack(side=tk.RIGHT, padx=(5, 0))
+        
+        tk.Label(
+            usb_scanner_frame,
+            text="✓ Auto-processes when scanner sends data",
+            font=("Arial", 8),
+            fg="#27ae60"
+        ).pack(pady=(5, 0))
+        
+        # Separator
+        tk.Frame(scanner_frame, height=2, bg="#bdc3c7").pack(fill=tk.X, pady=10)
+        
+        # Camera/Image Scanning Options
         tk.Label(
             scanner_frame,
-            text="Scan QR codes for actions:",
+            text="Or scan using camera/image:",
             font=("Arial", 9),
             fg="gray"
         ).pack(pady=(0, 8))
         
         tk.Button(
             scanner_frame,
-            text="Scan from Camera",
+            text="📷 Scan from Camera",
             command=self.scan_from_camera,
             bg="#3498db",
             fg="white",
@@ -288,7 +345,7 @@ class InventoryApp:
         
         tk.Button(
             scanner_frame,
-            text="Scan from Image",
+            text="🖼️ Scan from Image",
             command=self.scan_from_image,
             bg="#9b59b6",
             fg="white",
@@ -485,6 +542,76 @@ class InventoryApp:
                 self.process_scanned_qr(data)
             else:
                 messagebox.showerror("Scan Failed", message)
+    
+    def process_scanner_input(self, event=None):
+        """Process input from USB handheld scanner (MH-ET LIVE, etc.)"""
+        scanned_text = self.scanner_input.get().strip()
+        
+        if not scanned_text:
+            return
+        
+        # Clear the input field
+        self.scanner_input.delete(0, tk.END)
+        
+        # Parse the scanned data
+        # Expected format: "INVENTORY_ID:WG-0001|NAME:Blue Container"
+        try:
+            data_dict = {}
+            parts = scanned_text.split('|')
+            
+            for part in parts:
+                if ':' in part:
+                    key, value = part.split(':', 1)
+                    data_dict[key.strip()] = value.strip()
+            
+            # Check if we have the required fields
+            if 'INVENTORY_ID' in data_dict:
+                # Get gallon from database to verify and get name
+                gallon = self.db.get_gallon(data_dict['INVENTORY_ID'])
+                
+                if gallon:
+                    # Process as normal scanned QR
+                    processed_data = {
+                        'inventory_id': data_dict['INVENTORY_ID'],
+                        'name': gallon['name']
+                    }
+                    self.process_scanned_qr(processed_data)
+                else:
+                    messagebox.showerror(
+                        "Not Found",
+                        f"Gallon ID '{data_dict['INVENTORY_ID']}' not found in database."
+                    )
+            else:
+                # Try to extract inventory ID pattern (WG-####)
+                inventory_match = re.search(r'WG-\d{4}', scanned_text)
+                
+                if inventory_match:
+                    inventory_id = inventory_match.group(0)
+                    gallon = self.db.get_gallon(inventory_id)
+                    
+                    if gallon:
+                        processed_data = {
+                            'inventory_id': inventory_id,
+                            'name': gallon['name']
+                        }
+                        self.process_scanned_qr(processed_data)
+                    else:
+                        messagebox.showerror(
+                            "Not Found",
+                            f"Gallon ID '{inventory_id}' not found in database."
+                        )
+                else:
+                    messagebox.showerror(
+                        "Invalid Format",
+                        f"Could not parse scanned data:\n{scanned_text}\n\n"
+                        "Expected format: INVENTORY_ID:WG-0001|NAME:..."
+                    )
+        
+        except Exception as e:
+            messagebox.showerror(
+                "Scan Error",
+                f"Error processing scanned data:\n{str(e)}\n\nScanned text:\n{scanned_text}"
+            )
     
     def process_scanned_qr(self, data):
         """Process scanned QR code data - Show choice between Refill and Defect"""
