@@ -6,6 +6,10 @@ matplotlib
 pyzbar
 
 # Pressure sensor libraries (optional - only if using hardware sensors)
-# Uncomment these lines if you have pressure sensor hardware:
+# For Arduino USB connection (RECOMMENDED for Raspberry Pi 4 - no GPIO needed):
+pyserial
+
+# For direct GPIO sensor connection (requires GPIO pins):
+# Uncomment these lines if you have pressure sensor connected directly to Pi GPIO:
 # adafruit-circuitpython-mcp3xxx
 # adafruit-circuitpython-bmp280

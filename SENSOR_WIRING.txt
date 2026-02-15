@@ -3,7 +3,77 @@
     Water Gallon Leak Detection System
 ================================================================================
 
-OPTION 1: ANALOG PRESSURE SENSOR (MPX5700AP) with MCP3008 ADC
+OPTION 1: ARDUINO + PRESSURE SENSOR → RASPBERRY PI via USB (RECOMMENDED FOR RPI 4)
+-----------------------------------------------------------------------------------
+✅ No GPIO pins required on Raspberry Pi
+✅ Simple USB connection
+✅ Arduino handles analog sensor reading
+
+WHAT YOU NEED:
+- Arduino Uno/Nano/Mega (any model with USB)
+- MPX5700AP or MPX5010DP Pressure Sensor (analog)
+- USB cable (Arduino to Raspberry Pi)
+- 3 Jumper wires
+- Pressure fitting to connect to gallon valve
+
+
+STEP 1: CONNECT PRESSURE SENSOR TO ARDUINO
+-------------------------------------------
+Pressure Sensor MPX5700AP → Arduino:
+  Pin 1 (Vout/Signal) ---> Arduino A0 (Analog Pin 0)
+  Pin 2 (GND)         ---> Arduino GND
+  Pin 3 (+5V)         ---> Arduino 5V
+
+
+STEP 2: UPLOAD ARDUINO CODE
+----------------------------
+1. Open Arduino IDE
+2. Upload pressure_sensor_arduino.ino (included in this repo)
+3. Verify serial monitor shows pressure readings
+
+
+STEP 3: CONNECT ARDUINO TO RASPBERRY PI
+----------------------------------------
+Arduino ---> Raspberry Pi 4:
+  USB Port ---> Any USB port on Pi (physical connection only - NO GPIO!)
+
+The Arduino appears as /dev/ttyUSB0 or /dev/ttyACM0
+
+
+STEP 4: RASPBERRY PI SOFTWARE SETUP
+------------------------------------
+1. Install PySerial:
+   sudo apt-get install python3-serial
+   or
+   pip install pyserial
+
+2. Find Arduino port:
+   ls /dev/ttyUSB* /dev/ttyACM*
+
+3. In main.py, initialize sensor:
+   sensor = PressureSensor(sensor_type='usb', pin='/dev/ttyUSB0')
+   or
+   sensor = PressureSensor(sensor_type='usb', pin='/dev/ttyACM0')
+
+
+COMPLETE CONNECTION SUMMARY (ARDUINO METHOD):
+----------------------------------------------
+PRESSURE SENSOR → ARDUINO:
+  Pin 1 (Signal) ---> Arduino A0
+  Pin 2 (GND)    ---> Arduino GND
+  Pin 3 (+5V)    ---> Arduino 5V
+
+ARDUINO → RASPBERRY PI:
+  USB Cable only - plugs directly into USB port
+  No GPIO wiring needed!
+
+DATA FLOW:
+  Pressure Sensor → Arduino (analog read) → USB Serial → Raspberry Pi (Python)
+
+
+================================================================================
+
+OPTION 2: ANALOG PRESSURE SENSOR (MPX5700AP) with MCP3008 ADC
 --------------------------------------------------------------
 Recommended for water gallon leak detection
 
@@ -78,7 +148,7 @@ RASPBERRY PI:
 
 ================================================================================
 
-OPTION 2: I2C DIGITAL SENSOR (BMP280) - SIMPLER BUT LESS SUITABLE
+OPTION 3: I2C DIGITAL SENSOR (BMP280) - SIMPLER BUT LESS SUITABLE
 ------------------------------------------------------------------
 Only 4 wires needed, but measures air pressure (not ideal for water)
 
@@ -89,7 +159,7 @@ BMP280 --> Raspberry Pi:
   SDA ---> Pi Pin 3 (GPIO2/SDA)
 
 Note: BMP280 is for atmospheric pressure, not water pressure in gallons.
-      Use Option 1 for actual leak detection.
+      Use Option 1 (Arduino) for actual leak detection without GPIO pins.
 
 
 ================================================================================

@@ -56,7 +56,7 @@ class InventoryApp:
         # Initialize pressure sensor for leak detection
         try:
             self.pressure_sensor = PressureSensor(
-                sensor_type='analog',  # Change to 'i2c' for BMP280
+                sensor_type='auto',    # Auto-detect (tries USB, then simulation)
                 threshold=5.0,         # 5% pressure drop triggers leak
                 monitoring_duration=30 # Monitor for 30 seconds
             )

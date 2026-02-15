@@ -7,6 +7,8 @@ For Raspberry Pi with pressure sensor integration
 import time
 import threading
 from datetime import datetime
+import os
+import glob
 
 
 class PressureSensor:
@@ -15,18 +17,25 @@ class PressureSensor:
     Supports multiple sensor types compatible with Raspberry Pi
     """
     
-    def __init__(self, sensor_type='analog', pin=None, threshold=5.0, monitoring_duration=30):
+    def __init__(self, sensor_type='auto', pin=None, threshold=5.0, monitoring_duration=30):
         """
         Initialize pressure sensor
         
         Args:
-            sensor_type: 'analog' (via ADC) or 'i2c' (digital sensor)
-            pin: GPIO pin number or I2C address
+            sensor_type: 'auto' (auto-detect), 'analog' (via ADC), 'i2c' (digital sensor), or 'usb' (Arduino via USB)
+            pin: GPIO pin number, I2C address, or USB port path (e.g., '/dev/ttyUSB0', '/dev/ttyACM0')
             threshold: Pressure drop percentage to trigger leak detection (default 5%)
             monitoring_duration: Seconds to monitor before declaring leak (default 30s)
         """
-        self.sensor_type = sensor_type
-        self.pin = pin
+        # Auto-detect sensor type if requested
+        if sensor_type == 'auto':
+            detected_type, detected_pin = self._auto_detect_sensor()
+            self.sensor_type = detected_type
+            self.pin = pin if pin is not None else detected_pin
+            print(f"🔍 Auto-detected sensor type: {self.sensor_type}")
+        else:
+            self.sensor_type = sensor_type
+            self.pin = pin
         self.threshold = threshold  # Percentage drop
         self.monitoring_duration = monitoring_duration
         
@@ -42,6 +51,44 @@ class PressureSensor:
         self.max_history = 10
         
         self.setup_sensor()
+    
+    @staticmethod
+    def _auto_detect_sensor():
+        """
+        Auto-detect available sensor type
+        Returns: (sensor_type, pin)
+        Priority: USB > I2C > Analog > Simulation
+        """
+        # Try USB/Arduino first (no GPIO needed)
+        usb_ports = []
+        if os.name != 'nt':  # Unix/Linux (Raspberry Pi)
+            usb_ports = glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*')
+        else:  # Windows (for development)
+            try:
+                import serial.tools.list_ports
+                ports = serial.tools.list_ports.comports()
+                usb_ports = [port.device for port in ports if 'USB' in port.description or 'Arduino' in port.description]
+            except:
+                pass
+        
+        if usb_ports:
+            print(f"   Found USB device: {usb_ports[0]}")
+            return ('usb', usb_ports[0])
+        
+        # Try I2C devices
+        if os.path.exists('/dev/i2c-1'):
+            print("   Found I2C bus, checking for sensors...")
+            # Could add I2C device detection here
+            # For now, just note it's available
+        
+        # Try GPIO/SPI for analog sensors
+        if os.path.exists('/dev/spidev0.0'):
+            print("   Found SPI bus (for analog sensors)")
+            # Could detect MCP3008 here
+        
+        # Default to simulation mode
+        print("   No hardware sensor detected, using simulation mode")
+        return ('simulation', None)
     
     def setup_sensor(self):
         """Initialize the pressure sensor hardware"""
@@ -82,6 +129,33 @@ class PressureSensor:
                 except ImportError:
                     print("⚠️ Adafruit BMP280 library not installed. Using simulation mode.")
                     self.sensor = None
+                    
+            elif self.sensor_type == 'usb':
+                # For Arduino connected via USB serial
+                try:
+                    import serial
+                    
+                    # Default USB port if not specified
+                    port = self.pin if self.pin else '/dev/ttyUSB0'
+                    
+                    # Open serial connection to Arduino
+                    self.sensor = serial.Serial(port, 9600, timeout=1)
+                    time.sleep(2)  # Wait for Arduino to reset
+                    print(f"✅ USB/Arduino pressure sensor initialized on {port}")
+                    print("   Make sure Arduino is running pressure_sensor_arduino.ino")
+                    
+                except ImportError:
+                    print("⚠️ PySerial library not installed. Run: pip install pyserial")
+                    self.sensor = None
+                except Exception as e:
+                    print(f"⚠️ Could not connect to Arduino: {e}")
+                    print("   Check USB connection and port (try /dev/ttyACM0 or /dev/ttyUSB0)")
+                    self.sensor = None
+            
+            elif self.sensor_type == 'simulation':
+                # Explicit simulation mode (no hardware)
+                print("⚙️ Using simulation mode (no hardware sensor)")
+                self.sensor = None
             
             else:
                 print("⚠️ Unknown sensor type. Using simulation mode.")
@@ -119,6 +193,16 @@ class PressureSensor:
                 # Read from I2C sensor (returns kPa or hPa)
                 pressure_kpa = self.sensor.pressure / 10.0  # Convert hPa to kPa
                 return pressure_kpa
+            
+            elif self.sensor_type == 'usb':
+                # Read from Arduino via USB serial
+                if self.sensor.in_waiting > 0:
+                    line = self.sensor.readline().decode('utf-8').strip()
+                    if line.startswith('PRESSURE:'):
+                        # Parse: "PRESSURE:30.45"
+                        pressure = float(line.split(':')[1])
+                        return pressure
+                return self.current_pressure  # Return last known value if no new data
             
         except Exception as e:
             print(f"❌ Error reading pressure: {e}")
@@ -246,8 +330,8 @@ if __name__ == '__main__':
         print(f"   Drop: {drop_pct:.2f}%")
         print(f"   Baseline: {baseline:.2f} PSI → Current: {current:.2f} PSI")
     
-    # Create sensor (simulation mode)
-    sensor = PressureSensor(sensor_type='analog', threshold=5.0, monitoring_duration=10)
+    # Create sensor (auto-detect or simulation mode)
+    sensor = PressureSensor(sensor_type='auto', threshold=5.0, monitoring_duration=10)
     
     print("Starting leak detection test...")
     sensor.start_monitoring('WG-0001', callback=leak_callback)
