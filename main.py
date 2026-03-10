@@ -12,11 +12,23 @@ from text_logger import TextFileLogger
 from pressure_sensor import PressureSensor
 import os
 import re
+import serial
+import serial.tools.list_ports
+import threading
+import time
 from datetime import datetime
 from PIL import Image, ImageTk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+
+# IoT components (optional — app still works if Flask is not installed)
+try:
+    import web_server
+    import cloud_logger
+    _IOT_AVAILABLE = True
+except ImportError:
+    _IOT_AVAILABLE = False
 
 
 class InventoryApp:
@@ -56,7 +68,8 @@ class InventoryApp:
         # Initialize pressure sensor for leak detection
         try:
             self.pressure_sensor = PressureSensor(
-                sensor_type='auto',    # Auto-detect (tries USB, then simulation)
+                sensor_type='usb',     # Use USB/Arduino connection
+                pin='COM8',            # Your Arduino COM port (change if different)
                 threshold=5.0,         # 5% pressure drop triggers leak
                 monitoring_duration=30 # Monitor for 30 seconds
             )
@@ -65,9 +78,24 @@ class InventoryApp:
             print(f"[WARNING] Pressure sensor not available: {e}")
             self.pressure_sensor = None
         
+        # Arduino serial connection for automated workflow
+        self.arduino_serial = None
+        self.arduino_port = None
+        self.workflow_state = "IDLE"  # IDLE, SCANNING, CHECKING_DEFECT, CHECKING_PRESSURE, MOVING, FILLING, COMPLETE
+        self.current_gallon_id = None
+        self.workflow_running = False
+        
+        # Try to connect to Arduino
+        self.connect_arduino()
+        
         # Track canvas widgets for scrolling
         self.canvas_widgets = {}
-        
+
+        # IoT — start Flask web server in background thread
+        self.web_server_port = 5000
+        self.web_server_url = ""
+        self._start_iot_server()
+
         # Bind F11 for fullscreen toggle
         self.root.bind('<F11>', lambda e: self.toggle_fullscreen())
         self.root.bind('<Escape>', lambda e: self.exit_fullscreen())
@@ -128,38 +156,167 @@ class InventoryApp:
         self.notebook.add(inventory_tab, text="Inventory")
         self.setup_inventory_list(inventory_tab)
         
-        # Tab 2: Controls (Add & Scan)
+        # Tab 2: Add Gallon only
         controls_tab = tk.Frame(self.notebook)
-        self.notebook.add(controls_tab, text="Add/Scan")
+        self.notebook.add(controls_tab, text="Add Gallon")
+        self.setup_add_gallon_panel(controls_tab)
         
-        # Create scrollable frame for controls
-        canvas = tk.Canvas(controls_tab)
-        scrollbar = ttk.Scrollbar(controls_tab, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas)
+        # Tab 3: Automated Workflow
+        automation_tab = tk.Frame(self.notebook)
+        self.notebook.add(automation_tab, text="🤖 Auto Workflow")
+        self.setup_automation_panel(automation_tab)
         
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Store canvas for global scrolling
-        self.canvas_widgets['controls'] = canvas
-        
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Add panels to scrollable frame
-        self.setup_add_gallon_panel(scrollable_frame)
-        self.setup_qr_scanner_panel(scrollable_frame)
-        
-        # Tab 3: Statistics
+        # Tab 4: Statistics
         stats_tab = tk.Frame(self.notebook)
         self.notebook.add(stats_tab, text="Stats")
         self.setup_statistics_panel(stats_tab)
+
+        # Tab 5: IoT / Web Dashboard
+        iot_tab = tk.Frame(self.notebook)
+        self.notebook.add(iot_tab, text="🌐 IoT")
+        self.setup_iot_panel(iot_tab)
     
+    def _start_iot_server(self):
+        """Start the Flask web server in a background daemon thread."""
+        if not _IOT_AVAILABLE:
+            self.web_server_url = "Flask not installed"
+            return
+        try:
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+        except Exception:
+            local_ip = "127.0.0.1"
+
+        self.web_server_url = f"http://{local_ip}:{self.web_server_port}"
+        web_server.start_server_thread(self.db, port=self.web_server_port)
+        print(f"[IoT] Web dashboard: {self.web_server_url}")
+
+    def setup_iot_panel(self, parent):
+        """IoT / Web Dashboard control panel."""
+        outer = tk.Frame(parent, bg="#1a1a2e")
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        # ── Title bar ──────────────────────────────────────────────
+        title_bar = tk.Frame(outer, bg="#16213e", pady=10)
+        title_bar.pack(fill=tk.X)
+        tk.Label(title_bar, text="🌐 IoT Dashboard & Remote Monitoring",
+                 font=("Arial", 14, "bold"), bg="#16213e", fg="#4fc3f7").pack()
+
+        content = tk.Frame(outer, bg="#1a1a2e", padx=20, pady=15)
+        content.pack(fill=tk.BOTH, expand=True)
+
+        # ── Web Dashboard card ─────────────────────────────────────
+        web_card = tk.LabelFrame(content, text="  🖥  Local Network Dashboard  ",
+                                 font=("Arial", 11, "bold"),
+                                 fg="#4fc3f7", bg="#16213e",
+                                 labelanchor="n", padx=15, pady=15)
+        web_card.pack(fill=tk.X, pady=(0, 12))
+
+        if _IOT_AVAILABLE:
+            status_color = "#66bb6a"
+            status_text = "● Running"
+        else:
+            status_color = "#ef5350"
+            status_text = "● Flask not installed"
+
+        tk.Label(web_card, text=status_text, font=("Arial", 10, "bold"),
+                 fg=status_color, bg="#16213e").pack()
+
+        url_frame = tk.Frame(web_card, bg="#0d1117", bd=1, relief=tk.SUNKEN, padx=8, pady=6)
+        url_frame.pack(fill=tk.X, pady=8)
+
+        self.iot_url_label = tk.Label(url_frame, text=self.web_server_url or "—",
+                                      font=("Courier", 11, "bold"),
+                                      fg="#ffa726", bg="#0d1117", cursor="hand2")
+        self.iot_url_label.pack()
+        self.iot_url_label.bind("<Button-1>", self._open_dashboard_browser)
+
+        hint = "Click the URL above to open in your browser, or enter it on any device connected to the same Wi-Fi."
+        tk.Label(web_card, text=hint, font=("Arial", 9), fg="#8892b0",
+                 bg="#16213e", wraplength=540, justify=tk.CENTER).pack(pady=(0, 4))
+
+        btn_row = tk.Frame(web_card, bg="#16213e")
+        btn_row.pack()
+        tk.Button(btn_row, text="🌍 Open in Browser",
+                  command=self._open_dashboard_browser,
+                  bg="#4fc3f7", fg="#000", font=("Arial", 10, "bold"),
+                  cursor="hand2", padx=14, pady=5, relief=tk.FLAT).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_row, text="📋 Copy URL",
+                  command=self._copy_dashboard_url,
+                  bg="#22263a", fg="#e8eaf6", font=("Arial", 10),
+                  cursor="hand2", padx=14, pady=5, relief=tk.FLAT).pack(side=tk.LEFT, padx=5)
+
+        # ── API Endpoints card ─────────────────────────────────────
+        api_card = tk.LabelFrame(content, text="  📡  REST API Endpoints  ",
+                                 font=("Arial", 11, "bold"),
+                                 fg="#ab47bc", bg="#16213e",
+                                 labelanchor="n", padx=15, pady=12)
+        api_card.pack(fill=tk.X, pady=(0, 12))
+
+        base = self.web_server_url if self.web_server_url and "http" in self.web_server_url else "http://<ip>:5000"
+        endpoints = [
+            ("GET",  f"{base}/api/inventory",       "All gallons (JSON)"),
+            ("GET",  f"{base}/api/stats",            "Statistics summary"),
+            ("GET",  f"{base}/api/activity",         "Activity log (last 50)"),
+            ("GET",  f"{base}/api/sensor",           "Live sensor readings"),
+            ("POST", f"{base}/api/inventory/<id>/refill", "Trigger a refill"),
+            ("POST", f"{base}/api/inventory/<id>/defect", "Report a defect"),
+        ]
+
+        for method, path, desc in endpoints:
+            row = tk.Frame(api_card, bg="#16213e")
+            row.pack(fill=tk.X, pady=1)
+            method_color = "#66bb6a" if method == "GET" else "#ffa726"
+            tk.Label(row, text=f" {method} ", font=("Courier", 9, "bold"),
+                     fg=method_color, bg="#0d1117", width=5).pack(side=tk.LEFT, padx=(0, 6))
+            tk.Label(row, text=path, font=("Courier", 9),
+                     fg="#e8eaf6", bg="#16213e", anchor="w").pack(side=tk.LEFT)
+            tk.Label(row, text=f" — {desc}", font=("Arial", 9),
+                     fg="#8892b0", bg="#16213e", anchor="w").pack(side=tk.LEFT)
+
+        # ── Cloud Logger card ──────────────────────────────────────
+        cloud_card = tk.LabelFrame(content, text="  ☁  Cloud Sync (Firebase)  ",
+                                   font=("Arial", 11, "bold"),
+                                   fg="#66bb6a", bg="#16213e",
+                                   labelanchor="n", padx=15, pady=12)
+        cloud_card.pack(fill=tk.X, pady=(0, 12))
+
+        if _IOT_AVAILABLE:
+            cloud_ok = cloud_logger.is_connected()
+            cloud_status = ("● Connected" if cloud_ok else "○ Disabled — add firebase_credentials.json to enable")
+            cloud_color  = "#66bb6a" if cloud_ok else "#8892b0"
+        else:
+            cloud_status = "○ cloud_logger not loaded"
+            cloud_color  = "#8892b0"
+
+        tk.Label(cloud_card, text=cloud_status, font=("Arial", 10),
+                 fg=cloud_color, bg="#16213e").pack()
+
+        cloud_hint = ("Create firebase_credentials.json and firebase_config.json in the project folder to enable "
+                      "real-time cloud sync with Firebase Realtime Database.")
+        tk.Label(cloud_card, text=cloud_hint, font=("Arial", 9), fg="#8892b0",
+                 bg="#16213e", wraplength=540, justify=tk.CENTER).pack(pady=(6, 0))
+
+    def _open_dashboard_browser(self, _event=None):
+        """Open the web dashboard URL in the default browser."""
+        url = self.web_server_url
+        if not url or "http" not in url:
+            messagebox.showinfo("IoT Dashboard", "Web server is not running.\nInstall Flask: pip install flask flask-cors")
+            return
+        import webbrowser
+        webbrowser.open(url)
+
+    def _copy_dashboard_url(self):
+        """Copy the dashboard URL to the clipboard."""
+        url = self.web_server_url
+        if not url:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(url)
+        messagebox.showinfo("Copied", f"URL copied to clipboard:\n{url}")
+
     def setup_statistics_panel(self, parent):
         """Setup statistics display panel with graphs"""
         # Create scrollable frame for stats
@@ -223,45 +380,58 @@ class InventoryApp:
         ).pack(fill=tk.X, pady=(10, 0))
     
     def setup_add_gallon_panel(self, parent):
-        """Setup add gallon panel"""
-        add_frame = tk.LabelFrame(parent, text="Add New Gallon", font=("Arial", 11, "bold"), padx=10, pady=10)
-        add_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        # Auto-generated ID display (read-only)
-        tk.Label(add_frame, text="Inventory ID (Auto-generated):", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
-        self.id_display = tk.Label(add_frame, text="Will be generated automatically", font=("Arial", 11), bg="#ecf0f1", anchor=tk.W, padx=10, pady=8)
-        self.id_display.pack(fill=tk.X, pady=(0, 8))
-        
+        """Setup add gallon panel - centred, max-width card layout"""
+        parent.grid_rowconfigure(0, weight=1)
+        parent.grid_columnconfigure(0, weight=1)
+
+        # Outer wrapper so the card stays centred and has max width
+        wrapper = tk.Frame(parent)
+        wrapper.grid(row=0, column=0)
+
+        card = tk.LabelFrame(wrapper, text="Add New Gallon",
+                             font=("Arial", 13, "bold"), padx=20, pady=18)
+        card.pack(padx=40, pady=40, ipadx=10, ipady=6)
+        card.config(width=520)
+
+        # Auto-generated ID
+        tk.Label(card, text="Inventory ID (Auto-generated):",
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 4))
+        self.id_display = tk.Label(card, text="Will be generated automatically",
+                                   font=("Arial", 11), bg="#ecf0f1",
+                                   anchor=tk.W, padx=10, pady=8, width=44)
+        self.id_display.pack(fill=tk.X, pady=(0, 14))
+
         # Gallon Name
-        tk.Label(add_frame, text="Gallon Name:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
-        self.name_entry = tk.Entry(add_frame, font=("Arial", 11))
-        self.name_entry.pack(fill=tk.X, pady=(0, 10), ipady=5)
+        tk.Label(card, text="Gallon Name:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 4))
+        self.name_entry = tk.Entry(card, font=("Arial", 12))
+        self.name_entry.pack(fill=tk.X, pady=(0, 16), ipady=8)
         self.name_entry.bind('<KeyRelease>', lambda e: self.update_id_preview())
-        
+
         # Buttons
-        btn_frame = tk.Frame(add_frame)
+        btn_frame = tk.Frame(card)
         btn_frame.pack(fill=tk.X)
-        
+
         tk.Button(
-            btn_frame,
-            text="Add & Generate QR",
+            btn_frame, text="➕  Add & Generate QR",
             command=self.add_gallon,
-            bg="#27ae60",
-            fg="white",
-            font=("Arial", 10, "bold"),
-            cursor="hand2",
-            pady=8
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
-        
+            bg="#27ae60", fg="white", font=("Arial", 11, "bold"),
+            cursor="hand2", pady=12
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 6))
+
         tk.Button(
-            btn_frame,
-            text="Clear",
+            btn_frame, text="Clear",
             command=self.clear_form,
-            bg="#95a5a6",
-            fg="white",
+            bg="#95a5a6", fg="white",
             font=("Arial", 10),
             cursor="hand2",
             pady=8
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 6))
+
+        tk.Button(
+            btn_frame, text="Clear",
+            command=self.clear_form,
+            bg="#95a5a6", fg="white",
+            font=("Arial", 11), cursor="hand2", pady=12
         ).pack(side=tk.RIGHT, expand=True, fill=tk.X)
     
     def setup_qr_scanner_panel(self, parent):
@@ -353,6 +523,198 @@ class InventoryApp:
             cursor="hand2",
             pady=8
         ).pack(fill=tk.X, pady=3)
+    
+    def setup_automation_panel(self, parent):
+        """Setup automated workflow panel with GUI controls - 2 column layout"""
+        parent.grid_rowconfigure(1, weight=1)
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_columnconfigure(1, weight=1)
+
+        # ── Top banner (full width) ──────────────────────────────────────────
+        banner = tk.Frame(parent, bg="#2c3e50", padx=15, pady=12)
+        banner.grid(row=0, column=0, columnspan=2, sticky="ew", padx=8, pady=(8, 0))
+
+        tk.Label(banner, text="🤖 Automated Gallon Workflow",
+                 font=("Arial", 14, "bold"), bg="#2c3e50", fg="white").pack(side=tk.LEFT)
+
+        # Arduino connection badge on the right of banner
+        self.arduino_status_label = tk.Label(
+            banner, text="⚠ Arduino: Not Connected",
+            font=("Arial", 9, "bold"), bg="#e74c3c", fg="white", padx=8, pady=4
+        )
+        self.arduino_status_label.pack(side=tk.RIGHT, padx=(10, 0))
+
+        tk.Button(banner, text="🔄 Connect", command=self.connect_arduino,
+                  bg="#3498db", fg="white", font=("Arial", 9, "bold"),
+                  cursor="hand2", padx=8, pady=4, relief=tk.FLAT
+        ).pack(side=tk.RIGHT)
+
+        # ── LEFT COLUMN: Steps 1, 2, 3 ──────────────────────────────────────
+        left = tk.Frame(parent, padx=8, pady=8)
+        left.grid(row=1, column=0, sticky="nsew", padx=(8, 4), pady=8)
+        left.grid_columnconfigure(0, weight=1)
+
+        # Step 1 – QR Scan
+        step1 = tk.LabelFrame(left, text="Step 1 — Scan QR Code",
+                              font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=10)
+        step1.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        step1.grid_columnconfigure(0, weight=1)
+
+        tk.Label(step1, text="Click field then scan with handheld scanner:",
+                 font=("Arial", 9), fg="#555", bg="#f0f4f8").grid(row=0, column=0, sticky="w")
+
+        self.auto_qr_input = tk.Entry(
+            step1, font=("Arial", 13, "bold"),
+            bg="#fff3cd", fg="#000", relief=tk.SOLID, borderwidth=2, justify=tk.CENTER
+        )
+        self.auto_qr_input.grid(row=1, column=0, sticky="ew", pady=6, ipady=10)
+        self.auto_qr_input.bind('<Return>', lambda e: self.workflow_scan_qr())
+
+        self.qr_status_label = tk.Label(
+            step1, text="Waiting for scan...",
+            font=("Arial", 10), bg="#f0f4f8", fg="#888"
+        )
+        self.qr_status_label.grid(row=2, column=0, pady=(0, 2))
+
+        # Step 2 – Visual Inspection
+        step2 = tk.LabelFrame(left, text="Step 2 — Visual Inspection",
+                              font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=10)
+        step2.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        step2.grid_columnconfigure(0, weight=1)
+        step2.grid_columnconfigure(1, weight=1)
+
+        tk.Label(step2, text="Inspect gallon. Is there a defect?",
+                 font=("Arial", 10, "bold"), bg="#f0f4f8").grid(
+                 row=0, column=0, columnspan=2, pady=(0, 8))
+
+        self.defect_btn = tk.Button(
+            step2, text="❌  DEFECT FOUND",
+            command=lambda: self.workflow_defect_check(has_defect=True),
+            bg="#e74c3c", fg="white", font=("Arial", 11, "bold"),
+            cursor="hand2", pady=18, state=tk.DISABLED
+        )
+        self.defect_btn.grid(row=1, column=0, sticky="ew", padx=(0, 4))
+
+        self.no_defect_btn = tk.Button(
+            step2, text="✓  NO DEFECT",
+            command=lambda: self.workflow_defect_check(has_defect=False),
+            bg="#27ae60", fg="white", font=("Arial", 11, "bold"),
+            cursor="hand2", pady=18, state=tk.DISABLED
+        )
+        self.no_defect_btn.grid(row=1, column=1, sticky="ew", padx=(4, 0))
+
+        self.defect_status_label = tk.Label(
+            step2, text="", font=("Arial", 10), bg="#f0f4f8"
+        )
+        self.defect_status_label.grid(row=2, column=0, columnspan=2, pady=(8, 0))
+
+        # Step 3 – Pressure / Leak Test
+        step3 = tk.LabelFrame(left, text="Step 3 — Pressure / Leak Test",
+                              font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=10)
+        step3.grid(row=2, column=0, sticky="ew")
+        step3.grid_columnconfigure(0, weight=1)
+
+        self.pressure_status_label = tk.Label(
+            step3, text="Waiting…",
+            font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=14
+        )
+        self.pressure_status_label.grid(row=0, column=0, sticky="ew")
+
+        self.pressure_value_label = tk.Label(
+            step3, text="Pressure: -- PSI",
+            font=("Arial", 10), bg="#f0f4f8", fg="#555"
+        )
+        self.pressure_value_label.grid(row=1, column=0, pady=(2, 6))
+
+        # ── RIGHT COLUMN: Step 4 + Controls + Log ────────────────────────────
+        right = tk.Frame(parent, padx=8, pady=8)
+        right.grid(row=1, column=1, sticky="nsew", padx=(4, 8), pady=8)
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(1, weight=1)   # log expands
+
+        # Step 4 – Automatic Filling
+        step4 = tk.LabelFrame(right, text="Step 4 — Automatic Filling",
+                              font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=10)
+        step4.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        step4.grid_columnconfigure(0, weight=1)
+        step4.grid_columnconfigure(1, weight=1)
+        step4.grid_columnconfigure(2, weight=1)
+        step4.grid_columnconfigure(3, weight=1)
+
+        self.filling_status_label = tk.Label(
+            step4, text="Waiting…", font=("Arial", 11, "bold"),
+            bg="#f0f4f8", padx=10, pady=12
+        )
+        self.filling_status_label.grid(row=0, column=0, columnspan=4, sticky="ew")
+
+        # Indicator dots grid
+        indicators = [
+            ("Conveyor",    "conveyor_status",    0, 0),
+            ("Position",    "position_status",    0, 2),
+            ("Valve",       "valve_status",       1, 0),
+            ("Water Level", "water_level_status", 1, 2),
+        ]
+        for label_text, attr, row, col in indicators:
+            tk.Label(step4, text=f"{label_text}:", font=("Arial", 9),
+                     bg="#f0f4f8").grid(row=row + 1, column=col, sticky="e", padx=(6, 2), pady=6)
+            dot = tk.Label(step4, text="●", font=("Arial", 16), fg="#bdc3c7", bg="#f0f4f8")
+            dot.grid(row=row + 1, column=col + 1, sticky="w", padx=(0, 6))
+            setattr(self, attr, dot)
+
+        self.ultrasonic_distance_label = tk.Label(
+            step4, text="Distance: -- cm", font=("Arial", 9), bg="#f0f4f8", fg="#555"
+        )
+        self.ultrasonic_distance_label.grid(row=3, column=0, columnspan=4, pady=(0, 4))
+
+        # Control Buttons
+        ctrl = tk.Frame(right, padx=2, pady=2)
+        ctrl.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ctrl.grid_columnconfigure(0, weight=1)
+        ctrl.grid_columnconfigure(1, weight=1)
+        ctrl.grid_columnconfigure(2, weight=1)
+
+        self.start_workflow_btn = tk.Button(
+            ctrl, text="▶ START",
+            command=self.start_automated_workflow,
+            bg="#27ae60", fg="white", font=("Arial", 11, "bold"),
+            cursor="hand2", pady=14
+        )
+        self.start_workflow_btn.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+
+        self.stop_workflow_btn = tk.Button(
+            ctrl, text="⏹ STOP",
+            command=self.stop_automated_workflow,
+            bg="#e74c3c", fg="white", font=("Arial", 11, "bold"),
+            cursor="hand2", pady=14, state=tk.DISABLED
+        )
+        self.stop_workflow_btn.grid(row=0, column=1, sticky="ew", padx=3)
+
+        self.reset_workflow_btn = tk.Button(
+            ctrl, text="🔄 RESET",
+            command=self.reset_workflow,
+            bg="#95a5a6", fg="white", font=("Arial", 11, "bold"),
+            cursor="hand2", pady=14
+        )
+        self.reset_workflow_btn.grid(row=0, column=2, sticky="ew", padx=(3, 0))
+
+        # Workflow Log
+        log_frame = tk.LabelFrame(right, text="Workflow Log",
+                                  font=("Arial", 10, "bold"), padx=6, pady=6)
+        log_frame.grid(row=2, column=0, sticky="nsew")
+        log_frame.grid_rowconfigure(0, weight=1)
+        log_frame.grid_columnconfigure(0, weight=1)
+
+        log_scroll = ttk.Scrollbar(log_frame)
+        log_scroll.grid(row=0, column=1, sticky="ns")
+
+        self.workflow_log = tk.Text(
+            log_frame, font=("Consolas", 9),
+            bg="#2c3e50", fg="#ecf0f1",
+            yscrollcommand=log_scroll.set,
+            state=tk.DISABLED, wrap=tk.WORD
+        )
+        self.workflow_log.grid(row=0, column=0, sticky="nsew")
+        log_scroll.config(command=self.workflow_log.yview)
     
     def setup_quick_actions_panel(self, parent):
         """Setup quick actions panel"""
@@ -804,6 +1166,9 @@ class InventoryApp:
         
         if success:
             self.logger.log_activity(inventory_id, 'REFILL', 'Gallon refilled')
+            if _IOT_AVAILABLE:
+                gallon = self.db.get_gallon(inventory_id)
+                cloud_logger.log_refill(inventory_id, gallon.get('name', '') if gallon else '')
             messagebox.showinfo("Success", "Refill recorded successfully!")
             self.refresh_inventory_list()
             self.update_statistics()
@@ -819,6 +1184,9 @@ class InventoryApp:
             
             if success:
                 self.logger.log_activity(inventory_id, 'DEFECT', 'Defect detected')
+                if _IOT_AVAILABLE:
+                    gallon = self.db.get_gallon(inventory_id)
+                    cloud_logger.log_defect(inventory_id, gallon.get('name', '') if gallon else '')
                 messagebox.showinfo("Success", "Defect recorded. Gallon marked as defective.")
                 self.refresh_inventory_list()
                 self.update_statistics()
@@ -1454,21 +1822,462 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             if current_tab == 0 and 'inventory' in self.canvas_widgets:
                 self.canvas_widgets['inventory'].yview_scroll(int(-1*(event.delta/120)), "units")
             
-            # Tab 1: Controls - scroll the canvas
-            elif current_tab == 1 and 'controls' in self.canvas_widgets:
-                self.canvas_widgets['controls'].yview_scroll(int(-1*(event.delta/120)), "units")
-            
-            # Tab 2: Stats - scroll the canvas
-            elif current_tab == 2 and 'stats' in self.canvas_widgets:
+            # Tab 3: Stats - scroll the canvas
+            elif current_tab == 3 and 'stats' in self.canvas_widgets:
                 self.canvas_widgets['stats'].yview_scroll(int(-1*(event.delta/120)), "units")
         except:
             pass  # Silently ignore any scrolling errors
     
+    # ========================================================================
+    # AUTOMATED WORKFLOW METHODS
+    # ========================================================================
+    
+    def extract_inventory_id(self, qr_data):
+        """Extract inventory ID from QR code data"""
+        try:
+            # Try format: "INVENTORY_ID:WG-0001|NAME:..."
+            if 'INVENTORY_ID:' in qr_data:
+                parts = qr_data.split('|')
+                for part in parts:
+                    if 'INVENTORY_ID:' in part:
+                        return part.split(':', 1)[1].strip()
+            
+            # Try to find WG-#### pattern
+            inventory_match = re.search(r'WG-\d{4}', qr_data)
+            if inventory_match:
+                return inventory_match.group(0)
+            
+            return None
+        except:
+            return None
+    
+    def connect_arduino(self):
+        """Connect to Arduino for automated workflow"""
+        try:
+            # Try to find Arduino port
+            ports = list(serial.tools.list_ports.comports())
+            arduino_port = None
+            
+            for port in ports:
+                if 'Arduino' in port.description or 'CH340' in port.description or 'USB Serial' in port.description:
+                    arduino_port = port.device
+                    break
+            
+            if not arduino_port and ports:
+                # Use first available port
+                arduino_port = ports[0].device
+            
+            if arduino_port:
+                self.arduino_serial = serial.Serial(arduino_port, 9600, timeout=1)
+                self.arduino_port = arduino_port
+                time.sleep(2)  # Wait for Arduino to reset
+                
+                self.log_workflow(f"✓ Connected to Arduino on {arduino_port}")
+                self.arduino_status_label.config(
+                    text=f"✓ Connected: {arduino_port}",
+                    bg="#27ae60"
+                )
+                
+                # Start monitoring thread
+                self.start_arduino_monitor()
+                return True
+            else:
+                self.log_workflow("⚠ No Arduino found")
+                return False
+                
+        except Exception as e:
+            self.log_workflow(f"❌ Arduino connection error: {e}")
+            self.arduino_serial = None
+            return False
+    
+    def start_arduino_monitor(self):
+        """Start thread to monitor Arduino responses"""
+        def monitor():
+            while self.arduino_serial and self.arduino_serial.is_open:
+                try:
+                    if self.arduino_serial.in_waiting:
+                        line = self.arduino_serial.readline().decode('utf-8', errors='ignore').strip()
+                        if line:
+                            self.process_arduino_response(line)
+                    time.sleep(0.1)
+                except Exception as e:
+                    print(f"Monitor error: {e}")
+                    break
+        
+        monitor_thread = threading.Thread(target=monitor, daemon=True)
+        monitor_thread.start()
+    
+    def send_arduino_command(self, command):
+        """Send command to Arduino"""
+        if self.arduino_serial and self.arduino_serial.is_open:
+            try:
+                self.arduino_serial.write(f"{command}\n".encode())
+                self.arduino_serial.flush()
+                return True
+            except Exception as e:
+                self.log_workflow(f"❌ Send error: {e}")
+                return False
+        return False
+    
+    def process_arduino_response(self, response):
+        """Process responses from Arduino"""
+        self.log_workflow(f"Arduino: {response}")
+        
+        # Update UI based on responses
+        if "PRESSURE:" in response:
+            try:
+                pressure = float(response.split(":")[1].replace(" PSI", ""))
+                self.root.after(0, lambda: self.pressure_value_label.config(text=f"Pressure: {pressure:.1f} PSI"))
+                if _IOT_AVAILABLE:
+                    web_server.update_sensor_state(pressure_psi=pressure, workflow_state=self.workflow_state)
+            except:
+                pass
+        
+        elif "DISTANCE:" in response:
+            try:
+                distance = response.split(":")[1].replace("cm", "").strip()
+                self.root.after(0, lambda: self.ultrasonic_distance_label.config(text=f"Distance: {distance} cm"))
+                if _IOT_AVAILABLE:
+                    web_server.update_sensor_state(distance_cm=float(distance), workflow_state=self.workflow_state)
+            except:
+                pass
+        
+        elif "LEAK:DETECTED" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(leak_detected=True, workflow_state="CHECKING_PRESSURE")
+            self.root.after(0, lambda: self.pressure_status_label.config(
+                text="❌ LEAK DETECTED!",
+                bg="#e74c3c",
+                fg="white"
+            ))
+            self.root.after(0, self.stop_automated_workflow)
+        
+        elif "LEAK:OK" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(leak_detected=False, workflow_state=self.workflow_state)
+            self.root.after(0, lambda: self.pressure_status_label.config(
+                text="✓ No Leak - Pressure OK",
+                bg="#27ae60",
+                fg="white"
+            ))
+            if self.workflow_state == "CHECKING_PRESSURE":
+                self.workflow_state = "MOVING"
+                self.root.after(0, self.workflow_move_to_fill)
+        
+        elif "CONVEYOR:MOVING" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(conveyor_running=True, workflow_state=self.workflow_state)
+            self.root.after(0, lambda: self.conveyor_status.config(text="●", fg="#2ecc71"))
+        
+        elif "CONVEYOR:STOPPED" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(conveyor_running=False, workflow_state=self.workflow_state)
+            self.root.after(0, lambda: self.conveyor_status.config(text="●", fg="#95a5a6"))
+        
+        elif "GALLON:DETECTED" in response:
+            self.root.after(0, lambda: self.position_status.config(text="●", fg="#2ecc71"))
+            if self.workflow_state == "MOVING":
+                self.workflow_state = "FILLING"
+                self.root.after(0, self.workflow_start_filling)
+        
+        elif "FILLING:START" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(valve_open=True, workflow_state="FILLING")
+            self.root.after(0, lambda: self.valve_status.config(text="●", fg="#3498db"))
+            self.root.after(0, lambda: self.filling_status_label.config(
+                text="💧 Filling in progress...",
+                bg="#3498db",
+                fg="white"
+            ))
+        
+        elif "FILLING:COMPLETE" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(valve_open=False, workflow_state="COMPLETE")
+            self.root.after(0, lambda: self.valve_status.config(text="●", fg="#95a5a6"))
+            self.root.after(0, lambda: self.water_level_status.config(text="●", fg="#2ecc71"))
+            self.root.after(0, lambda: self.filling_status_label.config(
+                text="✓ Filling Complete!",
+                bg="#27ae60",
+                fg="white"
+            ))
+            self.workflow_state = "COMPLETE"
+            self.root.after(0, self.workflow_complete)
+        
+        elif "CYCLE:COMPLETE" in response:
+            self.root.after(0, self.workflow_complete)
+    
+    def log_workflow(self, message):
+        """Add message to workflow log"""
+        try:
+            timestamp = time.strftime("%H:%M:%S")
+            self.workflow_log.config(state=tk.NORMAL)
+            self.workflow_log.insert(tk.END, f"[{timestamp}] {message}\n")
+            self.workflow_log.see(tk.END)
+            self.workflow_log.config(state=tk.DISABLED)
+        except:
+            pass
+    
+    def start_automated_workflow(self):
+        """Start the automated workflow"""
+        if not self.arduino_serial:
+            messagebox.showerror("Error", "Arduino not connected!\nPlease connect Arduino and try again.")
+            return
+        
+        self.workflow_running = True
+        self.workflow_state = "SCANNING"
+        
+        self.start_workflow_btn.config(state=tk.DISABLED)
+        self.stop_workflow_btn.config(state=tk.NORMAL)
+        
+        self.log_workflow("=" * 50)
+        self.log_workflow("🤖 AUTOMATED WORKFLOW STARTED")
+        self.log_workflow("=" * 50)
+        
+        # Focus on QR input
+        self.auto_qr_input.focus()
+        self.qr_status_label.config(text="👉 Scan QR code now", fg="#e67e22")
+    
+    def stop_automated_workflow(self):
+        """Stop the automated workflow"""
+        self.workflow_running = False
+        self.workflow_state = "IDLE"
+        
+        # Send stop command to Arduino
+        if self.arduino_serial:
+            self.send_arduino_command("STOP")
+        
+        self.start_workflow_btn.config(state=tk.NORMAL)
+        self.stop_workflow_btn.config(state=tk.DISABLED)
+        
+        self.log_workflow("⏹ Workflow stopped")
+    
+    def reset_workflow(self):
+        """Reset workflow to initial state"""
+        self.workflow_state = "IDLE"
+        self.current_gallon_id = None
+        self.workflow_running = False
+        
+        # Reset UI
+        self.auto_qr_input.delete(0, tk.END)
+        self.qr_status_label.config(text="Waiting for scan...", fg="gray")
+        self.defect_status_label.config(text="")
+        self.pressure_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
+        self.pressure_value_label.config(text="Pressure: -- PSI")
+        self.filling_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
+        self.ultrasonic_distance_label.config(text="Distance: -- cm")
+        
+        self.defect_btn.config(state=tk.DISABLED)
+        self.no_defect_btn.config(state=tk.DISABLED)
+        
+        # Reset status indicators
+        self.conveyor_status.config(text="●", fg="gray")
+        self.position_status.config(text="●", fg="gray")
+        self.valve_status.config(text="●", fg="gray")
+        self.water_level_status.config(text="●", fg="gray")
+        
+        self.start_workflow_btn.config(state=tk.NORMAL)
+        self.stop_workflow_btn.config(state=tk.DISABLED)
+        
+        # Send reset to Arduino
+        if self.arduino_serial:
+            self.send_arduino_command("RESET")
+        
+        self.log_workflow("🔄 Workflow reset")
+    
+    def workflow_scan_qr(self):
+        """Handle QR code scan in workflow"""
+        if self.workflow_state != "SCANNING":
+            return
+        
+        qr_data = self.auto_qr_input.get().strip()
+        if not qr_data:
+            return
+        
+        # Process QR code
+        inventory_id = self.extract_inventory_id(qr_data)
+        
+        if inventory_id:
+            self.current_gallon_id = inventory_id
+            self.log_workflow(f"✓ Scanned: {inventory_id}")
+            
+            self.qr_status_label.config(
+                text=f"✓ Scanned: {inventory_id}",
+                fg="#27ae60"
+            )
+            
+            # Move to defect checking
+            self.workflow_state = "CHECKING_DEFECT"
+            self.defect_btn.config(state=tk.NORMAL)
+            self.no_defect_btn.config(state=tk.NORMAL)
+            self.defect_status_label.config(
+                text="⏳ Awaiting visual inspection...",
+                fg="#e67e22"
+            )
+        else:
+            self.log_workflow(f"❌ Invalid QR code: {qr_data}")
+            self.qr_status_label.config(
+                text="❌ Invalid QR code. Scan again.",
+                fg="#e74c3c"
+            )
+            self.auto_qr_input.delete(0, tk.END)
+    
+    def workflow_defect_check(self, has_defect):
+        """Handle manual defect check"""
+        if self.workflow_state != "CHECKING_DEFECT":
+            return
+        
+        self.defect_btn.config(state=tk.DISABLED)
+        self.no_defect_btn.config(state=tk.DISABLED)
+        
+        if has_defect:
+            # Mark as defective and stop
+            self.log_workflow(f"❌ Defect found on {self.current_gallon_id}")
+            self.db.report_defect(self.current_gallon_id)
+            
+            self.defect_status_label.config(
+                text="❌ Defect reported. Gallon rejected.",
+                fg="#e74c3c"
+            )
+            
+            messagebox.showwarning(
+                "Defect Detected",
+                f"Gallon {self.current_gallon_id} marked as defective.\nRemove from line."
+            )
+            
+            # Reset for next gallon
+            self.reset_workflow()
+        else:
+            # No defect, continue to pressure check
+            self.log_workflow(f"✓ No defect on {self.current_gallon_id}")
+            self.defect_status_label.config(
+                text="✓ No defect detected",
+                fg="#27ae60"
+            )
+            
+            self.workflow_state = "CHECKING_PRESSURE"
+            self.workflow_check_pressure()
+    
+    def workflow_check_pressure(self):
+        """Check pressure/leak"""
+        self.log_workflow("Testing pressure...")
+        self.pressure_status_label.config(
+            text="⏳ Testing pressure...",
+            bg="#f39c12",
+            fg="white"
+        )
+
+        if not self.arduino_serial or not self.arduino_serial.is_open:
+            # No Arduino — let operator decide manually
+            self.log_workflow("⚠ No Arduino. Manual pressure check required.")
+            self.pressure_status_label.config(
+                text="⚠ No Arduino connected",
+                bg="#e67e22",
+                fg="white"
+            )
+            self._show_manual_pressure_dialog()
+            return
+
+        # Send STATUS command; Arduino will respond with LEAK:OK or LEAK:DETECTED
+        threading.Thread(target=self._pressure_check_thread, daemon=True).start()
+
+    def _show_manual_pressure_dialog(self):
+        """Ask operator to confirm pressure manually when Arduino is absent"""
+        result = messagebox.askyesno(
+            "Manual Pressure Check",
+            "No Arduino detected.\n\nDid the gallon PASS the pressure/leak test?\n\n"
+            "Click YES to continue to filling.\nClick NO to reject this gallon."
+        )
+        if result:
+            self.pressure_status_label.config(
+                text="✓ Manually confirmed — No Leak",
+                bg="#27ae60",
+                fg="white"
+            )
+            self.log_workflow("✓ Pressure check passed (manual)")
+            self.workflow_state = "MOVING"
+            self.workflow_move_to_fill()
+        else:
+            self.pressure_status_label.config(
+                text="❌ Failed — Gallon rejected",
+                bg="#e74c3c",
+                fg="white"
+            )
+            self.log_workflow("❌ Pressure check failed (manual) — gallon rejected")
+            self.reset_workflow()
+
+    def _pressure_check_thread(self):
+        """Background thread: send STATUS, wait up to 5 s for Arduino response"""
+        self.send_arduino_command("STATUS")
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            time.sleep(0.2)
+            # process_arduino_response() handles state transitions;
+            # if LEAK:OK or LEAK:DETECTED arrive we're done
+            if self.workflow_state != "CHECKING_PRESSURE":
+                return
+
+        # Timeout — Arduino didn't respond in time
+        self.root.after(0, self._pressure_timeout)
+
+    def _pressure_timeout(self):
+        """Called when Arduino doesn't reply to pressure check in time"""
+        if self.workflow_state != "CHECKING_PRESSURE":
+            return  # Already resolved
+        self.log_workflow("⚠ Pressure check timed out — manual decision required")
+        self._show_manual_pressure_dialog()
+
+    def workflow_move_to_fill(self):
+        """Move gallon to filling station"""
+        self.log_workflow("Moving to fill station...")
+        self.filling_status_label.config(
+            text="⏳ Moving to fill station...",
+            bg="#f39c12",
+            fg="white"
+        )
+        
+        # Arduino automatically moves conveyor and detects position
+        # When ultrasonic detects gallon, it will trigger filling
+    
+    def workflow_start_filling(self):
+        """Start filling process"""
+        self.log_workflow("Starting fill process...")
+        # Arduino automatically opens valve and monitors water level
+    
+    def workflow_complete(self):
+        """Complete workflow cycle"""
+        if self.current_gallon_id:
+            # Update refill count
+            self.db.increment_refills(self.current_gallon_id)
+            self.log_workflow(f"✓ Gallon {self.current_gallon_id} refilled successfully!")
+            
+            messagebox.showinfo(
+                "Success",
+                f"Gallon {self.current_gallon_id} refilled!\n\nReady for next gallon."
+            )
+        
+        # Reset for next gallon
+        self.reset_workflow()
+        
+        # Refresh inventory
+        self.refresh_inventory_list()
+        self.update_statistics()
+    
     def on_closing(self):
         """Handle application closing"""
+        # Close Arduino connection
+        if self.arduino_serial and self.arduino_serial.is_open:
+            try:
+                self.send_arduino_command("STOP")
+                time.sleep(0.5)
+                self.arduino_serial.close()
+            except:
+                pass
+        
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             self.db.close()
             self.root.destroy()
+
 
 
 def main():

@@ -13,19 +13,22 @@ This application manages inventory for water gallons in water refilling stations
 - Track refills and defects
 - Text file backup system
 - Automated leak detection with pressure sensor (Raspberry Pi)
+- **🤖 NEW: Full Automation System** - Integrated pressure check, conveyor control, ultrasonic detection, and automatic filling
 - Easy-to-use GUI interface
 - Touchscreen-friendly design
 - Fullscreen mode (F11)
 
 ## 🚀 Quick Start
 
-### Easy Way (Recommended)
+### Software Only (Inventory Management)
+
+**Easy Way (Recommended)**
 **Just double-click `run.bat`** - it will automatically:
 - ✅ Set up the Python environment
 - ✅ Install all required packages
 - ✅ Launch the application
 
-### Manual Installation
+**Manual Installation**
 1. Install Python 3.8 or higher
 2. Install required packages:
 ```bash
@@ -36,6 +39,18 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
+
+### 🤖 Complete Automation System (Hardware + Software)
+
+For fully automated gallon refilling with pressure checking, conveyor control, and automatic filling:
+
+1. **Wire the hardware** - Connect Arduino, sensors, motor, and valve
+2. **Upload Arduino code** - Flash `automated_refill_system.ino` to Arduino
+3. **Run Python controller** - Execute `automated_system_control.py`
+
+📖 **Complete Guide:** [AUTOMATED_SYSTEM_SETUP.md](AUTOMATED_SYSTEM_SETUP.md)
+
+---
 
 ## Database Structure
 - **Inventory ID**: Unique identifier for each gallon
@@ -60,7 +75,6 @@ python main.py
 - Plug-and-play - no drivers needed
 - Fastest scanning method (instant processing)
 - Works on both Windows and Raspberry Pi
-- See [MH-ET_LIVE_SCANNER_SETUP.md](MH-ET_LIVE_SCANNER_SETUP.md) for detailed setup
 
 ### Raspberry Pi Setup 🥧
 - Full support for Raspberry Pi 3B+ and newer
@@ -68,6 +82,14 @@ python main.py
 - USB scanner support
 - Optional pressure sensor for leak detection
 - See [RUN_ON_RASPBERRY_PI.md](RUN_ON_RASPBERRY_PI.md) for setup guide
+
+### Arduino Setup (Hardware Sensors) 🔧
+- Upload Arduino sketches from Raspberry Pi
+- Pressure sensor integration
+- Solenoid valve control
+- **NEW: Fully Automated Refill System** - Interconnected pressure sensor, conveyor, ultrasonic, and valve
+- See [ARDUINO_UPLOAD_GUIDE.md](ARDUINO_UPLOAD_GUIDE.md) for upload instructions
+- See [AUTOMATED_SYSTEM_SETUP.md](AUTOMATED_SYSTEM_SETUP.md) for complete automation setup
 
 ### Cameras 📷
 - USB webcams

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Water Gallon Inventory — IoT Dashboard</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css" />
+</head>
+<body>
+
+  <!-- ── HEADER ────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <h1>💧 Water Gallon Inventory</h1>
+      <div class="header-right">
+        <span id="clock" class="clock"></span>
+        <span id="connection-badge" class="badge badge--ok">● Live</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── STATS CARDS ───────────────────────────────────────── -->
+  <section class="section">
+    <div class="cards-grid" id="stats-cards">
+      <div class="card card--blue">
+        <div class="card-label">Total Gallons</div>
+        <div class="card-value" id="stat-total">—</div>
+      </div>
+      <div class="card card--green">
+        <div class="card-label">Active</div>
+        <div class="card-value" id="stat-active">—</div>
+      </div>
+      <div class="card card--red">
+        <div class="card-label">Defective</div>
+        <div class="card-value" id="stat-defective">—</div>
+      </div>
+      <div class="card card--orange">
+        <div class="card-label">Total Refills</div>
+        <div class="card-value" id="stat-refills">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SENSOR PANEL ──────────────────────────────────────── -->
+  <section class="section">
+    <h2 class="section-title">🔌 Live Sensor Status</h2>
+    <div class="sensor-grid">
+
+      <div class="sensor-card" id="sc-pressure">
+        <div class="sensor-icon">📊</div>
+        <div class="sensor-info">
+          <div class="sensor-name">Pressure</div>
+          <div class="sensor-value" id="sv-pressure">—</div>
+        </div>
+      </div>
+
+      <div class="sensor-card" id="sc-distance">
+        <div class="sensor-icon">📏</div>
+        <div class="sensor-info">
+          <div class="sensor-name">Distance</div>
+          <div class="sensor-value" id="sv-distance">—</div>
+        </div>
+      </div>
+
+      <div class="sensor-card" id="sc-valve">
+        <div class="sensor-icon">🚰</div>
+        <div class="sensor-info">
+          <div class="sensor-name">Valve</div>
+          <div class="sensor-value" id="sv-valve">—</div>
+        </div>
+      </div>
+
+      <div class="sensor-card" id="sc-conveyor">
+        <div class="sensor-icon">⚙️</div>
+        <div class="sensor-info">
+          <div class="sensor-name">Conveyor</div>
+          <div class="sensor-value" id="sv-conveyor">—</div>
+        </div>
+      </div>
+
+      <div class="sensor-card" id="sc-leak">
+        <div class="sensor-icon">🔍</div>
+        <div class="sensor-info">
+          <div class="sensor-name">Leak Check</div>
+          <div class="sensor-value" id="sv-leak">—</div>
+        </div>
+      </div>
+
+      <div class="sensor-card" id="sc-workflow">
+        <div class="sensor-icon">🤖</div>
+        <div class="sensor-info">
+          <div class="sensor-name">Workflow</div>
+          <div class="sensor-value" id="sv-workflow">—</div>
+        </div>
+      </div>
+
+    </div>
+    <p class="last-updated">Last updated: <span id="sensor-updated">—</span></p>
+  </section>
+
+  <!-- ── TWO-COLUMN: INVENTORY + ACTIVITY ──────────────────── -->
+  <section class="section">
+    <div class="two-col">
+
+      <!-- Inventory Table -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>📦 Inventory</h2>
+          <button class="btn btn--outline" onclick="loadInventory()">↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="inventory-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Refills</th>
+                <th>Defects</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="inventory-tbody">
+              <tr><td colspan="6" class="empty-row">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Activity Feed -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>📋 Activity Log</h2>
+          <button class="btn btn--outline" onclick="loadActivity()">↻ Refresh</button>
+        </div>
+        <ul class="activity-feed" id="activity-feed">
+          <li class="activity-item activity-item--empty">Loading…</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── TOAST NOTIFICATION ─────────────────────────────────── -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

@@ -5,11 +5,18 @@ numpy
 matplotlib
 pyzbar
 
-# Pressure sensor libraries (optional - only if using hardware sensors)
-# For Arduino USB connection (RECOMMENDED for Raspberry Pi 4 - no GPIO needed):
+# Serial communication with Arduino
 pyserial
 
+# IoT Web Dashboard (Flask REST API + LAN dashboard)
+flask
+flask-cors
+
+# Cloud sync (optional — add firebase_credentials.json to enable)
+# Install separately if needed:   pip install firebase-admin
+# firebase-admin
+
+# Pressure sensor libraries (optional - only if using hardware sensors)
 # For direct GPIO sensor connection (requires GPIO pins):
-# Uncomment these lines if you have pressure sensor connected directly to Pi GPIO:
 # adafruit-circuitpython-mcp3xxx
 # adafruit-circuitpython-bmp280

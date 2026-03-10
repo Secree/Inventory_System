@@ -10,3 +10,6 @@
 [2026-01-18 10:38:08] [REFILL] ID:WG-0001 - Gallon refilled
 [2026-02-15 17:17:37] [REFILL] ID:WG-0001 - Gallon refilled
 [2026-02-15 17:18:14] [REFILL] ID:WG-0001 - Gallon refilled
+[2026-02-27 14:21:42] [ADDED] ID:WG-0002 - New gallon "tite" added
+[2026-02-27 14:22:01] [DEFECT] ID:WG-0002 - Defect detected
+[2026-03-10 21:36:05] [REFILL] ID:WG-0001 - Gallon refilled
