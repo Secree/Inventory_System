@@ -68,8 +68,8 @@ class InventoryApp:
         # Initialize pressure sensor for leak detection
         try:
             self.pressure_sensor = PressureSensor(
-                sensor_type='usb',     # Use USB/Arduino connection
-                pin='COM8',            # Your Arduino COM port (change if different)
+                sensor_type='simulation',  # Avoid opening serial port at app startup
+                pin=None,
                 threshold=5.0,         # 5% pressure drop triggers leak
                 monitoring_duration=30 # Monitor for 30 seconds
             )
@@ -84,9 +84,13 @@ class InventoryApp:
         self.workflow_state = "IDLE"  # IDLE, SCANNING, CHECKING_DEFECT, CHECKING_PRESSURE, MOVING, FILLING, COMPLETE
         self.current_gallon_id = None
         self.workflow_running = False
+        self._qr_scan_after_id = None
+        self.manual_defect_fallback = False
+        self.arduino_firmware_unsupported = False
+        self.arduino_firmware_warned = False
         
-        # Try to connect to Arduino
-        self.connect_arduino()
+        # Arduino connection is manual via the Connect button to avoid
+        # triggering board reset/self-test routines at app startup.
         
         # Track canvas widgets for scrolling
         self.canvas_widgets = {}
@@ -422,15 +426,6 @@ class InventoryApp:
             btn_frame, text="Clear",
             command=self.clear_form,
             bg="#95a5a6", fg="white",
-            font=("Arial", 10),
-            cursor="hand2",
-            pady=8
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 6))
-
-        tk.Button(
-            btn_frame, text="Clear",
-            command=self.clear_form,
-            bg="#95a5a6", fg="white",
             font=("Arial", 11), cursor="hand2", pady=12
         ).pack(side=tk.RIGHT, expand=True, fill=tk.X)
     
@@ -568,7 +563,10 @@ class InventoryApp:
             bg="#fff3cd", fg="#000", relief=tk.SOLID, borderwidth=2, justify=tk.CENTER
         )
         self.auto_qr_input.grid(row=1, column=0, sticky="ew", pady=6, ipady=10)
-        self.auto_qr_input.bind('<Return>', lambda e: self.workflow_scan_qr())
+        self.auto_qr_input.bind('<Return>', lambda e: self.workflow_scan_qr(force=True))
+        self.auto_qr_input.bind('<KP_Enter>', lambda e: self.workflow_scan_qr(force=True))
+        self.auto_qr_input.bind('<Tab>', lambda e: self.workflow_scan_qr(force=True) or "break")
+        self.auto_qr_input.bind('<KeyRelease>', self.schedule_workflow_scan)
 
         self.qr_status_label = tk.Label(
             step1, text="Waiting for scan...",
@@ -576,14 +574,14 @@ class InventoryApp:
         )
         self.qr_status_label.grid(row=2, column=0, pady=(0, 2))
 
-        # Step 2 – Visual Inspection
-        step2 = tk.LabelFrame(left, text="Step 2 — Visual Inspection",
+        # Step 2 – Combined Pressure/Defect Decision
+        step2 = tk.LabelFrame(left, text="Step 2 — Pressure + Defect Decision",
                               font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=10)
         step2.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         step2.grid_columnconfigure(0, weight=1)
         step2.grid_columnconfigure(1, weight=1)
 
-        tk.Label(step2, text="Inspect gallon. Is there a defect?",
+        tk.Label(step2, text="Pressure checks automatically. If unavailable, decide manually:",
                  font=("Arial", 10, "bold"), bg="#f0f4f8").grid(
                  row=0, column=0, columnspan=2, pady=(0, 8))
 
@@ -608,8 +606,8 @@ class InventoryApp:
         )
         self.defect_status_label.grid(row=2, column=0, columnspan=2, pady=(8, 0))
 
-        # Step 3 – Pressure / Leak Test
-        step3 = tk.LabelFrame(left, text="Step 3 — Pressure / Leak Test",
+        # Pressure status (part of Step 2 flow)
+        step3 = tk.LabelFrame(left, text="Pressure Status (Step 2)",
                               font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=10)
         step3.grid(row=2, column=0, sticky="ew")
         step3.grid_columnconfigure(0, weight=1)
@@ -626,14 +624,14 @@ class InventoryApp:
         )
         self.pressure_value_label.grid(row=1, column=0, pady=(2, 6))
 
-        # ── RIGHT COLUMN: Step 4 + Controls + Log ────────────────────────────
+        # ── RIGHT COLUMN: Step 3 + Controls + Log ────────────────────────────
         right = tk.Frame(parent, padx=8, pady=8)
         right.grid(row=1, column=1, sticky="nsew", padx=(4, 8), pady=8)
         right.grid_columnconfigure(0, weight=1)
         right.grid_rowconfigure(1, weight=1)   # log expands
 
-        # Step 4 – Automatic Filling
-        step4 = tk.LabelFrame(right, text="Step 4 — Automatic Filling",
+        # Step 3 – Automatic Filling
+        step4 = tk.LabelFrame(right, text="Step 3 — Automatic Filling",
                               font=("Arial", 11, "bold"), bg="#f0f4f8", padx=10, pady=10)
         step4.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         step4.grid_columnconfigure(0, weight=1)
@@ -1854,37 +1852,78 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     def connect_arduino(self):
         """Connect to Arduino for automated workflow"""
         try:
-            # Try to find Arduino port
-            ports = list(serial.tools.list_ports.comports())
-            arduino_port = None
-            
-            for port in ports:
-                if 'Arduino' in port.description or 'CH340' in port.description or 'USB Serial' in port.description:
-                    arduino_port = port.device
-                    break
-            
-            if not arduino_port and ports:
-                # Use first available port
-                arduino_port = ports[0].device
-            
-            if arduino_port:
-                self.arduino_serial = serial.Serial(arduino_port, 9600, timeout=1)
-                self.arduino_port = arduino_port
-                time.sleep(2)  # Wait for Arduino to reset
-                
-                self.log_workflow(f"✓ Connected to Arduino on {arduino_port}")
+            self.arduino_firmware_unsupported = False
+            self.arduino_firmware_warned = False
+
+            # If we already hold a serial handle, close it before reconnecting.
+            if self.arduino_serial and hasattr(self.arduino_serial, 'is_open') and self.arduino_serial.is_open:
+                try:
+                    self.arduino_serial.close()
+                except Exception:
+                    pass
+                self.arduino_serial = None
+
+            # Reuse the serial connection already opened by PressureSensor to avoid
+            # opening the same port twice (which causes PermissionError on Windows).
+            if (self.pressure_sensor is not None
+                    and hasattr(self.pressure_sensor, 'sensor')
+                    and self.pressure_sensor.sensor is not None
+                    and hasattr(self.pressure_sensor.sensor, 'is_open')
+                    and self.pressure_sensor.sensor.is_open):
+                self.arduino_serial = self.pressure_sensor.sensor
+                self.arduino_port = self.arduino_serial.port
+                self.log_workflow(f"✓ Connected to Arduino on {self.arduino_port} (shared connection)")
                 self.arduino_status_label.config(
-                    text=f"✓ Connected: {arduino_port}",
+                    text=f"✓ Connected: {self.arduino_port}",
                     bg="#27ae60"
                 )
-                
-                # Start monitoring thread
                 self.start_arduino_monitor()
                 return True
-            else:
+
+            # PressureSensor not available — open a fresh connection
+            ports = list(serial.tools.list_ports.comports())
+            if not ports:
                 self.log_workflow("⚠ No Arduino found")
                 return False
-                
+
+            # Prioritize COM11, then likely Arduino USB serial devices.
+            priority_ports = []
+            for port in ports:
+                if port.device == 'COM11':
+                    priority_ports.append(port.device)
+            for port in ports:
+                if ('Arduino' in port.description or 'CH340' in port.description or 'USB Serial' in port.description) and port.device not in priority_ports:
+                    priority_ports.append(port.device)
+            for port in ports:
+                if port.device not in priority_ports:
+                    priority_ports.append(port.device)
+
+            last_error = None
+            for candidate in priority_ports:
+                try:
+                    self.arduino_serial = serial.Serial(candidate, 9600, timeout=1)
+                    self.arduino_port = candidate
+                    time.sleep(2)  # Wait for Arduino to reset
+
+                    self.log_workflow(f"✓ Connected to Arduino on {candidate}")
+                    self.arduino_status_label.config(
+                        text=f"✓ Connected: {candidate}",
+                        bg="#27ae60"
+                    )
+
+                    # Start monitoring thread
+                    self.start_arduino_monitor()
+                    return True
+                except Exception as err:
+                    last_error = err
+                    self.log_workflow(f"⚠ Could not open {candidate}: {err}")
+
+            self.log_workflow("❌ Could not open any serial port. Close Arduino Serial Monitor/other apps using COM ports and try Connect again.")
+            if last_error:
+                self.log_workflow(f"❌ Last port error: {last_error}")
+            self.arduino_serial = None
+            return False
+
         except Exception as e:
             self.log_workflow(f"❌ Arduino connection error: {e}")
             self.arduino_serial = None
@@ -1909,6 +1948,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def send_arduino_command(self, command):
         """Send command to Arduino"""
+        if self.arduino_firmware_unsupported:
+            self.log_workflow(f"⚠ Command blocked ({command}): unsupported Arduino firmware")
+            return False
+
         if self.arduino_serial and self.arduino_serial.is_open:
             try:
                 self.arduino_serial.write(f"{command}\n".encode())
@@ -1922,6 +1965,33 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     def process_arduino_response(self, response):
         """Process responses from Arduino"""
         self.log_workflow(f"Arduino: {response}")
+
+        upper = response.upper()
+        xtl_markers = (
+            "XTL ACTUATOR READY",
+            "STROKE:",
+            "EXTENDING...",
+            "RETRACTING..."
+        )
+        if any(marker in upper for marker in xtl_markers):
+            self.arduino_firmware_unsupported = True
+
+            # One-time safety stop request if firmware supports it.
+            if self.arduino_serial and self.arduino_serial.is_open and "EXTENDING" in upper:
+                try:
+                    self.arduino_serial.write(b"STOP\n")
+                    self.arduino_serial.flush()
+                except Exception:
+                    pass
+
+            if not self.arduino_firmware_warned:
+                self.arduino_firmware_warned = True
+                self.log_workflow("⚠ Unsupported XTL firmware detected. Upload automated_refill_system.ino.")
+                self.root.after(0, lambda: self.arduino_status_label.config(
+                    text="⚠ Unsupported Firmware",
+                    bg="#e74c3c"
+                ))
+            return
         
         # Update UI based on responses
         if "PRESSURE:" in response:
@@ -1950,7 +2020,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 bg="#e74c3c",
                 fg="white"
             ))
-            self.root.after(0, self.stop_automated_workflow)
+            self.root.after(0, lambda: self.enable_manual_defect_decision(
+                "❌ Leak detected. Confirm defect manually to trigger actuator."
+            ))
         
         elif "LEAK:OK" in response:
             if _IOT_AVAILABLE:
@@ -1963,7 +2035,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             if self.workflow_state == "CHECKING_PRESSURE":
                 self.workflow_state = "MOVING"
                 self.root.after(0, self.workflow_move_to_fill)
-        
+
         elif "CONVEYOR:MOVING" in response:
             if _IOT_AVAILABLE:
                 web_server.update_sensor_state(conveyor_running=True, workflow_state=self.workflow_state)
@@ -2005,7 +2077,17 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         
         elif "CYCLE:COMPLETE" in response:
             self.root.after(0, self.workflow_complete)
-    
+
+        elif "REJECT:START" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(valve_open=True, workflow_state="CHECKING_DEFECT")
+            self.root.after(0, lambda: self.valve_status.config(text="●", fg="#e67e22"))
+
+        elif "REJECT:DONE" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(valve_open=False, workflow_state="CHECKING_DEFECT")
+            self.root.after(0, lambda: self.valve_status.config(text="●", fg="#95a5a6"))
+
     def log_workflow(self, message):
         """Add message to workflow log"""
         try:
@@ -2019,9 +2101,16 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def start_automated_workflow(self):
         """Start the automated workflow"""
-        if not self.arduino_serial:
-            messagebox.showerror("Error", "Arduino not connected!\nPlease connect Arduino and try again.")
+        if self.arduino_firmware_unsupported:
+            messagebox.showerror(
+                "Unsupported Firmware",
+                "Detected XTL actuator firmware on Arduino.\n"
+                "Upload automated_refill_system.ino before starting workflow."
+            )
             return
+
+        if not self.arduino_serial:
+            self.log_workflow("⚠ Arduino not connected - running with manual pressure decision")
         
         self.workflow_running = True
         self.workflow_state = "SCANNING"
@@ -2053,9 +2142,14 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def reset_workflow(self):
         """Reset workflow to initial state"""
+        if self._qr_scan_after_id is not None:
+            self.root.after_cancel(self._qr_scan_after_id)
+            self._qr_scan_after_id = None
+
         self.workflow_state = "IDLE"
         self.current_gallon_id = None
         self.workflow_running = False
+        self.manual_defect_fallback = False
         
         # Reset UI
         self.auto_qr_input.delete(0, tk.END)
@@ -2084,35 +2178,68 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         
         self.log_workflow("🔄 Workflow reset")
     
-    def workflow_scan_qr(self):
-        """Handle QR code scan in workflow"""
-        if self.workflow_state != "SCANNING":
+    def schedule_workflow_scan(self, _event=None):
+        """Schedule QR processing after scanner input stabilizes."""
+        if self.workflow_state not in ("SCANNING", "IDLE"):
             return
+
+        if self._qr_scan_after_id is not None:
+            self.root.after_cancel(self._qr_scan_after_id)
+
+        self._qr_scan_after_id = self.root.after(120, self.workflow_scan_qr)
+
+    def workflow_scan_qr(self, force=False):
+        """Handle QR code scan in workflow"""
+        if self._qr_scan_after_id is not None:
+            self.root.after_cancel(self._qr_scan_after_id)
+            self._qr_scan_after_id = None
         
         qr_data = self.auto_qr_input.get().strip()
         if not qr_data:
             return
+
+        # Allow scanner input to kick off workflow automatically.
+        if self.workflow_state == "IDLE":
+            self.workflow_running = True
+            self.workflow_state = "SCANNING"
+            self.start_workflow_btn.config(state=tk.DISABLED)
+            self.stop_workflow_btn.config(state=tk.NORMAL)
+            self.log_workflow("▶ Workflow auto-started from QR scan")
+
+        if self.workflow_state != "SCANNING":
+            return
+
+        # In auto mode, avoid parsing too early while scanner is still typing.
+        if not force:
+            has_inventory_field = "INVENTORY_ID:" in qr_data.upper()
+            has_id_pattern = re.search(r'WG-\d{4}', qr_data) is not None
+            if not (has_inventory_field or has_id_pattern):
+                self._qr_scan_after_id = self.root.after(120, self.workflow_scan_qr)
+                return
         
         # Process QR code
         inventory_id = self.extract_inventory_id(qr_data)
         
         if inventory_id:
             self.current_gallon_id = inventory_id
+            self.manual_defect_fallback = False
             self.log_workflow(f"✓ Scanned: {inventory_id}")
             
             self.qr_status_label.config(
                 text=f"✓ Scanned: {inventory_id}",
                 fg="#27ae60"
             )
+            self.auto_qr_input.delete(0, tk.END)
             
-            # Move to defect checking
-            self.workflow_state = "CHECKING_DEFECT"
-            self.defect_btn.config(state=tk.NORMAL)
-            self.no_defect_btn.config(state=tk.NORMAL)
+            # Run automatic pressure check first (combined Step 2 flow)
+            self.workflow_state = "CHECKING_PRESSURE"
+            self.defect_btn.config(state=tk.DISABLED)
+            self.no_defect_btn.config(state=tk.DISABLED)
             self.defect_status_label.config(
-                text="⏳ Awaiting visual inspection...",
+                text="⏳ Running automatic pressure check...",
                 fg="#e67e22"
             )
+            self.workflow_check_pressure()
         else:
             self.log_workflow(f"❌ Invalid QR code: {qr_data}")
             self.qr_status_label.config(
@@ -2130,9 +2257,22 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.no_defect_btn.config(state=tk.DISABLED)
         
         if has_defect:
-            # Mark as defective and stop
+            self.manual_defect_fallback = False
+            # Mark as defective and activate reject actuator (if connected)
             self.log_workflow(f"❌ Defect found on {self.current_gallon_id}")
-            self.db.report_defect(self.current_gallon_id)
+            success, message = self.db.add_defect(self.current_gallon_id)
+            if not success:
+                self.log_workflow(f"⚠ Could not save defect: {message}")
+
+            reject_triggered = False
+            if self.arduino_serial and self.arduino_serial.is_open:
+                reject_triggered = self.send_arduino_command("REJECT")
+                if reject_triggered:
+                    self.log_workflow("↪ Reject actuator opened to push gallon outside conveyor")
+                else:
+                    self.log_workflow("⚠ Failed to send REJECT command to Arduino")
+            else:
+                self.log_workflow("⚠ Arduino not connected - reject actuator not triggered")
             
             self.defect_status_label.config(
                 text="❌ Defect reported. Gallon rejected.",
@@ -2141,21 +2281,60 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             
             messagebox.showwarning(
                 "Defect Detected",
-                f"Gallon {self.current_gallon_id} marked as defective.\nRemove from line."
+                f"Gallon {self.current_gallon_id} marked as defective.\n"
+                + ("Reject actuator triggered to push gallon outside conveyor."
+                   if reject_triggered else
+                   "Please remove from line manually.")
             )
             
             # Reset for next gallon
             self.reset_workflow()
         else:
-            # No defect, continue to pressure check
-            self.log_workflow(f"✓ No defect on {self.current_gallon_id}")
-            self.defect_status_label.config(
-                text="✓ No defect detected",
-                fg="#27ae60"
-            )
-            
-            self.workflow_state = "CHECKING_PRESSURE"
-            self.workflow_check_pressure()
+            # Manual fallback decision when automatic pressure check is unavailable
+            if self.manual_defect_fallback:
+                self.manual_defect_fallback = False
+                self.log_workflow(f"✓ Manual decision: no defect on {self.current_gallon_id}")
+                self.defect_status_label.config(
+                    text="✓ Manual check passed",
+                    fg="#27ae60"
+                )
+                self.pressure_status_label.config(
+                    text="✓ Manual decision accepted",
+                    bg="#27ae60",
+                    fg="white"
+                )
+                self.workflow_state = "MOVING"
+                self.workflow_move_to_fill()
+            else:
+                # Backward-compatible path
+                self.log_workflow(f"✓ No defect on {self.current_gallon_id}")
+                self.defect_status_label.config(
+                    text="✓ No defect detected",
+                    fg="#27ae60"
+                )
+                self.workflow_state = "CHECKING_PRESSURE"
+                self.workflow_check_pressure()
+
+    def enable_manual_defect_decision(self, reason):
+        """Fallback path when automatic pressure check is not available."""
+        if self.workflow_state not in ("CHECKING_PRESSURE", "SCANNING"):
+            return
+
+        self.manual_defect_fallback = True
+        self.workflow_state = "CHECKING_DEFECT"
+        self.log_workflow(reason)
+
+        self.pressure_status_label.config(
+            text="⚠ Pressure check unavailable",
+            bg="#e67e22",
+            fg="white"
+        )
+        self.defect_status_label.config(
+            text="⚠ Choose manually: DEFECT FOUND or NO DEFECT",
+            fg="#e67e22"
+        )
+        self.defect_btn.config(state=tk.NORMAL)
+        self.no_defect_btn.config(state=tk.NORMAL)
     
     def workflow_check_pressure(self):
         """Check pressure/leak"""
@@ -2167,47 +2346,24 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         )
 
         if not self.arduino_serial or not self.arduino_serial.is_open:
-            # No Arduino — let operator decide manually
-            self.log_workflow("⚠ No Arduino. Manual pressure check required.")
-            self.pressure_status_label.config(
-                text="⚠ No Arduino connected",
-                bg="#e67e22",
-                fg="white"
-            )
-            self._show_manual_pressure_dialog()
+            # No Arduino — fallback to manual defect decision
+            self.enable_manual_defect_decision("⚠ No Arduino. Manual defect decision required.")
             return
 
         # Send STATUS command; Arduino will respond with LEAK:OK or LEAK:DETECTED
         threading.Thread(target=self._pressure_check_thread, daemon=True).start()
 
     def _show_manual_pressure_dialog(self):
-        """Ask operator to confirm pressure manually when Arduino is absent"""
-        result = messagebox.askyesno(
-            "Manual Pressure Check",
-            "No Arduino detected.\n\nDid the gallon PASS the pressure/leak test?\n\n"
-            "Click YES to continue to filling.\nClick NO to reject this gallon."
-        )
-        if result:
-            self.pressure_status_label.config(
-                text="✓ Manually confirmed — No Leak",
-                bg="#27ae60",
-                fg="white"
-            )
-            self.log_workflow("✓ Pressure check passed (manual)")
-            self.workflow_state = "MOVING"
-            self.workflow_move_to_fill()
-        else:
-            self.pressure_status_label.config(
-                text="❌ Failed — Gallon rejected",
-                bg="#e74c3c",
-                fg="white"
-            )
-            self.log_workflow("❌ Pressure check failed (manual) — gallon rejected")
-            self.reset_workflow()
+        """Compatibility wrapper for old calls."""
+        self.enable_manual_defect_decision("⚠ Manual pressure dialog replaced by defect decision fallback")
 
     def _pressure_check_thread(self):
         """Background thread: send STATUS, wait up to 5 s for Arduino response"""
-        self.send_arduino_command("STATUS")
+        if not self.send_arduino_command("STATUS"):
+            self.root.after(0, lambda: self.enable_manual_defect_decision(
+                "⚠ Failed to request pressure status. Manual defect decision required."
+            ))
+            return
 
         deadline = time.time() + 5
         while time.time() < deadline:
@@ -2224,8 +2380,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Called when Arduino doesn't reply to pressure check in time"""
         if self.workflow_state != "CHECKING_PRESSURE":
             return  # Already resolved
-        self.log_workflow("⚠ Pressure check timed out — manual decision required")
-        self._show_manual_pressure_dialog()
+        self.enable_manual_defect_decision("⚠ Pressure check timed out — manual defect decision required")
 
     def workflow_move_to_fill(self):
         """Move gallon to filling station"""

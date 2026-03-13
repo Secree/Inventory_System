@@ -12,7 +12,7 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 REM Activate virtual environment and install/update dependencies
-echo Checking dependencies...
+
 .venv\Scripts\python.exe -m pip install --upgrade pip --quiet
 .venv\Scripts\python.exe -m pip install --only-binary :all: -r requirements.txt --quiet
 

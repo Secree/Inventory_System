@@ -41,6 +41,7 @@
  *   "STOP"   -> Stop system
  *   "STATUS" -> Get current system status
  *   "RESET"  -> Reset to initial state
+ *   "REJECT" -> Extend reject actuator to eject defective gallon
  * 
  * Serial Responses:
  *   "LEAK:DETECTED"     -> Leak found, system stopped
@@ -51,6 +52,8 @@
  *   "FILLING:START"     -> Valve opened, filling
  *   "FILLING:COMPLETE"  -> Gallon full, valve closed
  *   "CYCLE:COMPLETE"    -> One gallon processed
+ *   "REJECT:START"      -> Reject actuator extended
+ *   "REJECT:DONE"       -> Reject actuator retracted
  */
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -71,6 +74,9 @@ const int ECHO_PIN = 10;
 
 // Solenoid Valve
 const int VALVE_PIN = 5;
+
+// Reject actuator relay pin (use a dedicated relay for actuator control).
+const int ACTUATOR_PIN = 4;
 
 // Status LEDs (optional)
 const int LED_STATUS = 13;    // System running indicator
@@ -96,6 +102,7 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
+const int REJECT_PUSH_TIME = 1200;        // ms - actuator extend time to eject defective gallon
 
 // Sampling delays
 const int PRESSURE_CHECK_INTERVAL = 1000;  // ms
@@ -129,6 +136,11 @@ int gallonsProcessed = 0;
 void setup() {
   // Initialize serial communication
   Serial.begin(9600);
+
+  // Preload active-LOW relay outputs to OFF before switching pins to OUTPUT.
+  // This avoids startup glitches where relays momentarily energize.
+  digitalWrite(VALVE_PIN, HIGH);
+  digitalWrite(ACTUATOR_PIN, HIGH);
   
   // Configure pins
   pinMode(PRESSURE_PIN, INPUT);
@@ -138,11 +150,13 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(VALVE_PIN, OUTPUT);
+  pinMode(ACTUATOR_PIN, OUTPUT);
   pinMode(LED_STATUS, OUTPUT);
   
   // Initialize all outputs to safe state
   stopConveyor();
   closeValve();
+  retractActuator();
   digitalWrite(LED_STATUS, LOW);
   
   // Wait for serial
@@ -152,7 +166,7 @@ void setup() {
   Serial.println("=================================");
   Serial.println("Automated Gallon Refill System");
   Serial.println("=================================");
-  Serial.println("Commands: START | STOP | STATUS | RESET");
+  Serial.println("Commands: START | STOP | STATUS | RESET | REJECT");
   Serial.println("System in IDLE state");
 }
 
@@ -290,6 +304,7 @@ void runStateMachine() {
       // Stop everything and wait for manual intervention
       stopConveyor();
       closeValve();
+      retractActuator();
       digitalWrite(LED_STATUS, LOW);
       systemRunning = false;
       Serial.println("SYSTEM STOPPED: Leak detected");
@@ -301,6 +316,7 @@ void runStateMachine() {
       // Stop and wait for user
       stopConveyor();
       closeValve();
+      retractActuator();
       systemRunning = false;
       Serial.println("SYSTEM STOPPED: Timeout error");
       Serial.println("Check system and send RESET command");
@@ -336,6 +352,25 @@ void openValve() {
 
 void closeValve() {
   digitalWrite(VALVE_PIN, HIGH);  // Relay off
+}
+
+void extendActuator() {
+  digitalWrite(ACTUATOR_PIN, LOW);  // Relay active-LOW for most modules
+}
+
+void retractActuator() {
+  digitalWrite(ACTUATOR_PIN, HIGH);  // Relay off
+}
+
+void rejectDefectiveGallon() {
+  stopConveyor();
+  closeValve();
+
+  Serial.println("REJECT:START");
+  extendActuator();
+  delay(REJECT_PUSH_TIME);
+  retractActuator();
+  Serial.println("REJECT:DONE");
 }
 
 float readPressure() {
@@ -408,6 +443,7 @@ void handleSerialCommands() {
       systemRunning = false;
       stopConveyor();
       closeValve();
+      retractActuator();
       digitalWrite(LED_STATUS, LOW);
       changeState(IDLE);
       Serial.println("SYSTEM:STOPPED");
@@ -430,10 +466,14 @@ void handleSerialCommands() {
       systemRunning = false;
       stopConveyor();
       closeValve();
+      retractActuator();
       digitalWrite(LED_STATUS, LOW);
       changeState(IDLE);
       gallonsProcessed = 0;
       Serial.println("SYSTEM:RESET");
+    }
+    else if (command == "REJECT") {
+      rejectDefectiveGallon();
     }
     else {
       Serial.print("ERROR: Unknown command: ");
