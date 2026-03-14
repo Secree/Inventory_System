@@ -95,6 +95,7 @@ class InventoryApp:
         self.manual_defect_fallback = False
         self.arduino_firmware_unsupported = False
         self.arduino_firmware_warned = False
+        self.awaiting_lower_before_pressure = False
         
         # Arduino connection is manual via the Connect button to avoid
         # triggering board reset/self-test routines at app startup.
@@ -2206,6 +2207,27 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Process responses from Arduino"""
         self.log_workflow(f"Arduino1: {response}")
 
+        if "ERROR: UNKNOWN COMMAND: LOWER_HALF" in response.upper():
+            if self.awaiting_lower_before_pressure:
+                self.awaiting_lower_before_pressure = False
+                self.root.after(0, lambda: self.pressure_status_label.config(
+                    text="❌ LOWER_HALF unsupported. Upload updated Arduino firmware.",
+                    bg="#e74c3c",
+                    fg="white"
+                ))
+                self.enable_manual_defect_decision(
+                    "❌ LOWER_HALF not supported by Arduino firmware. Upload updated automated_refill_system.ino."
+                )
+            return
+
+        if self.awaiting_lower_before_pressure and (
+            "ACTUATOR:LOWERED_HALF" in response or "ACTUATOR:LOWERED" in response
+        ):
+            self.awaiting_lower_before_pressure = False
+            self.log_workflow("⏳ Waiting 2s before pressure check...")
+            self._start_pressure_check_countdown(PRE_PRESSURE_POST_LOWER_DELAY_SEC)
+            return
+
         upper = response.upper()
         xtl_markers = (
             "XTL ACTUATOR READY",
@@ -2496,8 +2518,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             )
             self.auto_qr_input.delete(0, tk.END)
             
-            # Sequence: lower actuator -> 2s delay -> pressure check
+            # Sequence: lower actuator to 50% -> wait for completion -> 2s delay -> pressure check
             self.workflow_state = "CHECKING_PRESSURE"
+            self.awaiting_lower_before_pressure = False
             self.defect_btn.config(state=tk.DISABLED)
             self.no_defect_btn.config(state=tk.DISABLED)
             self.defect_status_label.config(
@@ -2505,9 +2528,16 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 fg="#e67e22"
             )
             if self.arduino_serial and self.arduino_serial.is_open:
-                self.send_arduino_command("LOWER")
-                self.log_workflow("⬇ Actuator lowering...")
-            self._start_pressure_check_countdown(PRE_PRESSURE_POST_LOWER_DELAY_SEC)
+                self.awaiting_lower_before_pressure = True
+                self.send_arduino_command("LOWER_HALF")
+                self.log_workflow("⬇ Actuator lowering to 50%...")
+                self.pressure_status_label.config(
+                    text="⏳ Lowering actuator to 50%...",
+                    bg="#8e44ad",
+                    fg="white"
+                )
+            else:
+                self._start_pressure_check_countdown(PRE_PRESSURE_POST_LOWER_DELAY_SEC)
         else:
             self.log_workflow(f"❌ Invalid QR code: {qr_data}")
             self.qr_status_label.config(
@@ -2610,7 +2640,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def _start_pressure_check_countdown(self, seconds_left):
         """Countdown after lowering actuator before starting pressure check."""
-        if self.workflow_state != "CHECKING_PRESSURE":
+        if self.workflow_state != "CHECKING_PRESSURE" or self.awaiting_lower_before_pressure:
             return
         if seconds_left > 0:
             self.pressure_status_label.config(

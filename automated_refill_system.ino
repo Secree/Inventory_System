@@ -239,7 +239,7 @@ void setup() {
   Serial.println("=================================");
   Serial.println("Automated Gallon Refill System");
   Serial.println("=================================");
-  Serial.println("Commands: START | STOP | STATUS | RESET | REJECT");
+  Serial.println("Commands: START | STOP | STATUS | RESET | REJECT | LOWER | LOWER_HALF | RAISE");
   Serial.println("PRESSURE:SCK_OUT_MODE (OUT->D2, SCK->D3)");
   Serial.println("System in IDLE state");
 }
@@ -675,7 +675,6 @@ void handleSerialCommands() {
       Serial.println("SYSTEM:STOPPED");
     }
     else if (command == "STATUS") {
-      lowerPrimaryActuator();
 
       float baselineAbs = readPressure();
       pressureBaseline = baselineAbs;
