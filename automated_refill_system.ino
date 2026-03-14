@@ -138,8 +138,9 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
-const int ACTUATOR_EXTEND_TIME = 1200;    // ms - time for primary actuator to fully extend
-const int ACTUATOR_RETRACT_TIME = 1200;   // ms - time for primary actuator to fully retract
+const int ACTUATOR_EXTEND_TIME = 600;    // ms - time for primary actuator to fully extend
+const int ACTUATOR_RETRACT_TIME = 600;   // ms - time for primary actuator to fully retract
+const int PRESSURE_RESULT_DELAY = 2000;    // ms - wait after pressure check completes
 const int REJECT_PUSH_TIME = 1200;        // ms - reject pusher extend time
 const int REJECT_RETRACT_TIME = 1200;     // ms - reject pusher retract time
 
@@ -299,6 +300,7 @@ void runStateMachine() {
         if (elapsed >= PRESSURE_TEST_TIME_MS) {
           Serial.print("PRESSURE:FINAL ");
           Serial.println(pressure, 1);
+          delay(PRESSURE_RESULT_DELAY);
 
           if (highPressureStreak >= CONSISTENT_HIGH_READS_REQUIRED) {
             Serial.println("LEAK:OK");
@@ -708,6 +710,9 @@ void handleSerialCommands() {
 
       Serial.print("PRESSURE:THRESHOLD=");
       Serial.println(requiredRise, 1);
+
+      // Hold 2s after pressure check before publishing pass/fail result.
+      delay(PRESSURE_RESULT_DELAY);
 
       if (leakDetected) {
         Serial.println("LEAK:DETECTED");
