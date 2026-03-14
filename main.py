@@ -169,10 +169,32 @@ class InventoryApp:
         self.notebook.add(controls_tab, text="Add Gallon")
         self.setup_add_gallon_panel(controls_tab)
         
-        # Tab 3: Automated Workflow
+        # Tab 3: Automated Workflow (scrollable for small touchscreens)
         automation_tab = tk.Frame(self.notebook)
         self.notebook.add(automation_tab, text="🤖 Auto Workflow")
-        self.setup_automation_panel(automation_tab)
+
+        automation_canvas = tk.Canvas(automation_tab)
+        automation_scrollbar = ttk.Scrollbar(automation_tab, orient="vertical", command=automation_canvas.yview)
+        automation_container = tk.Frame(automation_canvas)
+
+        automation_container.bind(
+            "<Configure>",
+            lambda e: automation_canvas.configure(scrollregion=automation_canvas.bbox("all"))
+        )
+
+        automation_window = automation_canvas.create_window((0, 0), window=automation_container, anchor="nw")
+
+        def _resize_automation_container(event):
+            automation_canvas.itemconfig(automation_window, width=event.width)
+
+        automation_canvas.bind("<Configure>", _resize_automation_container)
+        automation_canvas.configure(yscrollcommand=automation_scrollbar.set)
+
+        self.canvas_widgets['automation'] = automation_canvas
+
+        automation_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        automation_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.setup_automation_panel(automation_container)
         
         # Tab 4: Statistics
         stats_tab = tk.Frame(self.notebook)
@@ -642,7 +664,7 @@ class InventoryApp:
         right = tk.Frame(parent, padx=8, pady=8)
         right.grid(row=1, column=1, sticky="nsew", padx=(4, 8), pady=8)
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(1, weight=1)   # log expands
+        right.grid_rowconfigure(2, weight=1)   # log expands
 
         # Step 3 – Automatic Filling
         step4 = tk.LabelFrame(right, text="Step 3 — Automatic Filling",
@@ -1837,6 +1859,15 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             # Tab 3: Stats - scroll the canvas
             elif current_tab == 3 and 'stats' in self.canvas_widgets:
                 self.canvas_widgets['stats'].yview_scroll(int(-1*(event.delta/120)), "units")
+
+            # Tab 2: Auto Workflow - prefer log scrolling when cursor is over log
+            elif current_tab == 2:
+                event_widget = getattr(event, 'widget', None)
+                if (hasattr(self, 'workflow_log') and event_widget and
+                        str(event_widget).startswith(str(self.workflow_log))):
+                    self.workflow_log.yview_scroll(int(-1*(event.delta/120)), "units")
+                elif 'automation' in self.canvas_widgets:
+                    self.canvas_widgets['automation'].yview_scroll(int(-1*(event.delta/120)), "units")
         except:
             pass  # Silently ignore any scrolling errors
     
