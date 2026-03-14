@@ -7,7 +7,7 @@ This guide explains how to upload Arduino sketches from your Raspberry Pi to an 
 ### Individual Component Sketches
 - **pressure_sensor_arduino.ino** - Reads pressure sensor for leak detection
 - **pressure_sensor_i2c_arduino.ino** - I2C version of pressure sensor reader
-- **solenoid_valve_arduino.ino** - Controls solenoid valve for automatic refill
+- **arduino2_fill_controller.ino** - Controls solenoid valve for automatic refill
 
 ### 🤖 Integrated System (Recommended)
 - **automated_refill_system.ino** - Complete automated system that interconnects all components:
@@ -71,8 +71,8 @@ arduino-cli compile --fqbn arduino:avr:uno pressure_sensor_i2c_arduino.ino
 arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:uno pressure_sensor_i2c_arduino.ino
 
 # Solenoid valve controller
-arduino-cli compile --fqbn arduino:avr:uno solenoid_valve_arduino.ino
-arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:uno solenoid_valve_arduino.ino
+arduino-cli compile --fqbn arduino:avr:uno arduino2_fill_controller.ino
+arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:uno arduino2_fill_controller.ino
 ```
 
 **🤖 Integrated Automated System (Recommended):**
@@ -239,7 +239,7 @@ Arduino → Raspberry Pi:
   USB Port ---> Any USB port
 ```
 
-Upload: `solenoid_valve_arduino.ino`
+Upload: `arduino2_fill_controller.ino`
 
 ### What You Need
 

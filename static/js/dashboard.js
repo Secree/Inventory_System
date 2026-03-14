@@ -45,6 +45,23 @@ function setConnectionBadge(ok) {
   }
 }
 
+function setArduinoBadge(elId, label, connected, port) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+
+  const hasPort = typeof port === "string" && port.trim().length > 0;
+  const stateText = connected ? `Connected${hasPort ? ` (${port})` : ""}` : "Disconnected";
+  el.textContent = `${label}: ${stateText}`;
+  el.className = connected ? "badge badge--ok" : "badge badge--err";
+}
+
+function setArduinoBadges(sensorData) {
+  const a1Connected = sensorData?.arduino1_connected === true;
+  const a2Connected = sensorData?.arduino2_connected === true;
+  setArduinoBadge("arduino1-badge", "Arduino1", a1Connected, sensorData?.arduino1_port);
+  setArduinoBadge("arduino2-badge", "Arduino2", a2Connected, sensorData?.arduino2_port);
+}
+
 // ── TOAST ─────────────────────────────────────────────────────
 let _toastTimer = null;
 function showToast(msg, duration = 3000) {
@@ -83,6 +100,7 @@ function setSensorCard(cardId, valueId, value, text, state) {
 async function loadSensor() {
   try {
     const d = await apiFetch("/api/sensor");
+    setArduinoBadges(d);
 
     const psi = d.pressure_psi != null ? `${d.pressure_psi} PSI` : "N/A";
     const pressureState = d.leak_detected ? "error" : (d.pressure_psi != null ? "active" : "");
@@ -111,6 +129,7 @@ async function loadSensor() {
     if (updated) updated.textContent = d.last_updated ?? "—";
 
   } catch {
+    setArduinoBadges({ arduino1_connected: false, arduino2_connected: false });
     // no-op — connection badge already handled in loadStats
   }
 }

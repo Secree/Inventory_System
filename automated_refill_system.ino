@@ -13,28 +13,39 @@
  * 
  * Hardware Setup:
  * 
- * PRESSURE SENSOR (MPX5700AP):
- *   Pin 1 (Vout) -> Arduino A0
- *   Pin 2 (GND)  -> Arduino GND
- *   Pin 3 (+5V)  -> Arduino 5V
+ * PRESSURE SENSOR (digital module with GND/SCK/OUT/VCC):
+ *   GND -> Arduino GND
+ *   VCC -> Arduino 5V (or 3.3V if your module requires)
+ *   SCK -> Arduino Pin 3 (clock)
+ *   OUT -> Arduino Pin 2 (data)
  * 
  * CONVEYOR MOTOR (via Relay/Motor Driver):
- *   IN1  -> Arduino Pin 7
- *   IN2  -> Arduino Pin 8
- *   ENA  -> Arduino Pin 6 (PWM for speed control)
+ *   IN1  -> Arduino Pin A1
+ *   IN2  -> Arduino Pin A2
+ *   ENA  -> Arduino Pin 11 (PWM for speed control)
  *   Motor power -> External 12V supply
  * 
  * ULTRASONIC SENSOR (HC-SR04):
  *   VCC  -> Arduino 5V
  *   GND  -> Arduino GND
- *   TRIG -> Arduino Pin 9
- *   ECHO -> Arduino Pin 10
+ *   TRIG -> Arduino Pin 12
+ *   ECHO -> Arduino Pin A0
  * 
  * SOLENOID VALVE (12V via Relay):
  *   VCC  -> Arduino 5V
  *   GND  -> Arduino GND
- *   IN   -> Arduino Pin 5
+ *   IN   -> Arduino Pin 4
  *   Valve power -> External 12V supply
+
+ * PRIMARY ACTUATOR (seal actuator via L298N):
+ *   ENA  -> Arduino Pin 5
+ *   IN1  -> Arduino Pin 6
+ *   IN2  -> Arduino Pin 9
+
+ * REJECT ACTUATOR (pusher via L298N):
+ *   ENA  -> Arduino Pin 10
+ *   IN1  -> Arduino Pin 7
+ *   IN2  -> Arduino Pin 8
  * 
  * Serial Commands (9600 baud):
  *   "START"  -> Start automated system
@@ -42,8 +53,12 @@
  *   "STATUS" -> Get current system status
  *   "RESET"  -> Reset to initial state
  *   "REJECT" -> Extend reject actuator to eject defective gallon
- * 
+ *   "LOWER"  -> Extend actuator down (seal gallon for pressure test)
+ *   "RAISE"  -> Retract actuator up
+ *
  * Serial Responses:
+ *   "ACTUATOR:LOWERED"  -> Actuator fully extended
+ *   "ACTUATOR:RAISED"   -> Actuator retracted
  *   "LEAK:DETECTED"     -> Leak found, system stopped
  *   "LEAK:OK"           -> No leak detected
  *   "CONVEYOR:MOVING"   -> Conveyor is running
@@ -60,23 +75,46 @@
 // PIN CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Pressure Sensor
-const int PRESSURE_PIN = A0;
+// Pressure Sensor (clock/data style, 24-bit reading)
+const int PRESSURE_OUT_PIN = 2;
+const int PRESSURE_SCK_PIN = 3;
+
+// Raw-to-pressure conversion. Tune these from your sensor calibration.
+const long PRESSURE_RAW_AT_0 = 0;
+const long PRESSURE_RAW_AT_MAX = 8388607;
+const float PRESSURE_MAX = 710.0;
+const long PRESSURE_READ_TIMEOUT_SENTINEL = -2147483647L;
 
 // Conveyor Motor (L298N or similar)
-const int MOTOR_IN1 = 7;      // Direction control 1
-const int MOTOR_IN2 = 8;      // Direction control 2
-const int MOTOR_ENA = 6;      // PWM speed control (0-255)
+const int MOTOR_IN1 = A1;     // Direction control 1
+const int MOTOR_IN2 = A2;     // Direction control 2
+const int MOTOR_ENA = 11;     // PWM speed control (0-255)
 
 // Ultrasonic Sensor
-const int TRIG_PIN = 9;
-const int ECHO_PIN = 10;
+const int TRIG_PIN = 12;
+const int ECHO_PIN = A0;
 
 // Solenoid Valve
-const int VALVE_PIN = 5;
+const int VALVE_PIN = 4;
 
-// Reject actuator relay pin (use a dedicated relay for actuator control).
-const int ACTUATOR_PIN = 4;
+// Primary actuator DC motor (L298N via 12V supply)
+//   12V supply  -> L298N 12V / motor power
+//   ENA  -> Arduino Pin 5 (PWM speed)
+//   IN1  -> Arduino Pin 6
+//   IN2  -> Arduino Pin 9
+const int ACTUATOR_ENA   = 5;   // PWM enable
+const int ACTUATOR_IN1   = 6;   // Direction control 1 (extend = lower)
+const int ACTUATOR_IN2   = 9;   // Direction control 2 (retract = raise)
+const int ACTUATOR_SPEED = 200; // PWM speed (0-255)
+
+// Reject actuator DC motor (L298N via 12V supply)
+//   ENA  -> Arduino Pin 10
+//   IN1  -> Arduino Pin 7
+//   IN2  -> Arduino Pin 8
+const int REJECT_ACTUATOR_ENA   = 10;
+const int REJECT_ACTUATOR_IN1   = 7;
+const int REJECT_ACTUATOR_IN2   = 8;
+const int REJECT_ACTUATOR_SPEED = 200;
 
 // Status LEDs (optional)
 const int LED_STATUS = 13;    // System running indicator
@@ -85,11 +123,9 @@ const int LED_STATUS = 13;    // System running indicator
 // SYSTEM PARAMETERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Pressure sensor calibration (MPX5700AP)
-const float PRESSURE_V_MIN = 0.5;
-const float PRESSURE_V_MAX = 4.5;
-const float PRESSURE_P_MAX = 101.5;  // PSI
-const float LEAK_THRESHOLD = 5.0;    // PSI - below this indicates leak
+const float NO_LEAK_PRESSURE = 37.0;      // Required relative pressure rise above baseline for no-leak
+const unsigned long PRESSURE_TEST_TIME_MS = 15000;  // Wait 15 seconds before leak decision
+const int CONSISTENT_HIGH_READS_REQUIRED = 3;        // Consecutive reads above threshold needed for no-leak
 
 // Ultrasonic distances (cm)
 const int GALLON_DETECTION_DISTANCE = 25;  // Gallon present at fill station
@@ -102,7 +138,9 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
-const int REJECT_PUSH_TIME = 1200;        // ms - actuator extend time to eject defective gallon
+const int ACTUATOR_RETRACT_TIME = 1200;   // ms - time for primary actuator to fully retract
+const int REJECT_PUSH_TIME = 1200;        // ms - reject pusher extend time
+const int REJECT_RETRACT_TIME = 1200;     // ms - reject pusher retract time
 
 // Sampling delays
 const int PRESSURE_CHECK_INTERVAL = 1000;  // ms
@@ -128,6 +166,19 @@ bool systemRunning = false;
 unsigned long stateStartTime = 0;
 unsigned long lastPressureCheck = 0;
 int gallonsProcessed = 0;
+float pressureBaseline = -1.0;
+float lastPressure = 0.0;
+int highPressureStreak = 0;
+
+long readPressureRaw24();
+float rawToPressure(long raw);
+bool isLeakDetected(float pressureValue);
+float toRelativePressure(float absolutePressure, float baselinePressure);
+float requiredRiseForNoLeak(float baselinePressure);
+void stopPrimaryActuator();
+void extendRejectActuator();
+void retractRejectActuator();
+void stopRejectActuator();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SETUP
@@ -137,28 +188,45 @@ void setup() {
   // Initialize serial communication
   Serial.begin(9600);
 
-  // Preload active-LOW relay outputs to OFF before switching pins to OUTPUT.
-  // This avoids startup glitches where relays momentarily energize.
+  // Preload relay output to OFF before switching pin to OUTPUT.
+  // This avoids startup glitches where the relay momentarily energizes.
   digitalWrite(VALVE_PIN, HIGH);
-  digitalWrite(ACTUATOR_PIN, HIGH);
+
+  // Preload actuator motor driver to stopped state before setting as OUTPUT.
+  digitalWrite(ACTUATOR_IN1, LOW);
+  digitalWrite(ACTUATOR_IN2, LOW);
+  analogWrite(ACTUATOR_ENA, 0);
+
+  // Preload reject actuator motor driver to stopped state.
+  digitalWrite(REJECT_ACTUATOR_IN1, LOW);
+  digitalWrite(REJECT_ACTUATOR_IN2, LOW);
+  analogWrite(REJECT_ACTUATOR_ENA, 0);
   
   // Configure pins
-  pinMode(PRESSURE_PIN, INPUT);
   pinMode(MOTOR_IN1, OUTPUT);
   pinMode(MOTOR_IN2, OUTPUT);
   pinMode(MOTOR_ENA, OUTPUT);
+  pinMode(PRESSURE_OUT_PIN, INPUT);
+  pinMode(PRESSURE_SCK_PIN, OUTPUT);
+  digitalWrite(PRESSURE_SCK_PIN, LOW);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(VALVE_PIN, OUTPUT);
-  pinMode(ACTUATOR_PIN, OUTPUT);
+  pinMode(ACTUATOR_ENA, OUTPUT);
+  pinMode(ACTUATOR_IN1, OUTPUT);
+  pinMode(ACTUATOR_IN2, OUTPUT);
+  pinMode(REJECT_ACTUATOR_ENA, OUTPUT);
+  pinMode(REJECT_ACTUATOR_IN1, OUTPUT);
+  pinMode(REJECT_ACTUATOR_IN2, OUTPUT);
   pinMode(LED_STATUS, OUTPUT);
   
   // Initialize all outputs to safe state
   stopConveyor();
   closeValve();
   retractActuator();
+  stopRejectActuator();
   digitalWrite(LED_STATUS, LOW);
-  
+
   // Wait for serial
   while (!Serial) { ; }
   
@@ -167,6 +235,7 @@ void setup() {
   Serial.println("Automated Gallon Refill System");
   Serial.println("=================================");
   Serial.println("Commands: START | STOP | STATUS | RESET | REJECT");
+  Serial.println("PRESSURE:SCK_OUT_MODE (OUT->D2, SCK->D3)");
   Serial.println("System in IDLE state");
 }
 
@@ -198,21 +267,43 @@ void runStateMachine() {
       break;
     
     case CHECKING_PRESSURE:
-      // Check pressure sensor for leaks
+      // Check for leaks over 15 seconds
       if (millis() - lastPressureCheck >= PRESSURE_CHECK_INTERVAL) {
         lastPressureCheck = millis();
-        float pressure = readPressure();
+        float absolutePressure = readPressure();
+        unsigned long elapsed = millis() - stateStartTime;
+
+        // First reading in this check window is the baseline.
+        if (pressureBaseline < 0.0) {
+          pressureBaseline = absolutePressure;
+          Serial.print("PRESSURE:BASELINE ");
+          Serial.println(0.0, 1);
+        }
+
+        float pressure = toRelativePressure(absolutePressure, pressureBaseline);
+        float requiredRise = requiredRiseForNoLeak(pressureBaseline);
+
+        if (pressure >= requiredRise) {
+          highPressureStreak++;
+        } else {
+          highPressureStreak = 0;
+        }
         
         Serial.print("PRESSURE:");
-        Serial.print(pressure, 1);
-        Serial.println(" PSI");
-        
-        if (pressure < LEAK_THRESHOLD) {
-          Serial.println("LEAK:DETECTED");
-          changeState(ERROR_LEAK);
-        } else {
-          Serial.println("LEAK:OK");
-          changeState(MOVING_TO_FILL_STATION);
+        Serial.println(pressure, 1);
+
+        // Wait complete test duration before making pass/fail decision.
+        if (elapsed >= PRESSURE_TEST_TIME_MS) {
+          Serial.print("PRESSURE:FINAL ");
+          Serial.println(pressure, 1);
+
+          if (highPressureStreak >= CONSISTENT_HIGH_READS_REQUIRED) {
+            Serial.println("LEAK:OK");
+            changeState(MOVING_TO_FILL_STATION);
+          } else {
+            Serial.println("LEAK:DETECTED");
+            changeState(ERROR_LEAK);
+          }
         }
       }
       break;
@@ -305,6 +396,8 @@ void runStateMachine() {
       stopConveyor();
       closeValve();
       retractActuator();
+      stopPrimaryActuator();
+      stopRejectActuator();
       digitalWrite(LED_STATUS, LOW);
       systemRunning = false;
       Serial.println("SYSTEM STOPPED: Leak detected");
@@ -317,6 +410,8 @@ void runStateMachine() {
       stopConveyor();
       closeValve();
       retractActuator();
+      stopPrimaryActuator();
+      stopRejectActuator();
       systemRunning = false;
       Serial.println("SYSTEM STOPPED: Timeout error");
       Serial.println("Check system and send RESET command");
@@ -328,6 +423,13 @@ void runStateMachine() {
 void changeState(SystemState newState) {
   currentState = newState;
   stateStartTime = millis();
+
+  // Reset pressure baseline each time a new pressure test cycle starts.
+  if (newState == CHECKING_PRESSURE) {
+    pressureBaseline = -1.0;
+    lastPressureCheck = 0;
+    highPressureStreak = 0;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -355,11 +457,41 @@ void closeValve() {
 }
 
 void extendActuator() {
-  digitalWrite(ACTUATOR_PIN, LOW);  // Relay active-LOW for most modules
+  // Drive motor forward (lower actuator)
+  digitalWrite(ACTUATOR_IN1, HIGH);
+  digitalWrite(ACTUATOR_IN2, LOW);
+  analogWrite(ACTUATOR_ENA, ACTUATOR_SPEED);
 }
 
 void retractActuator() {
-  digitalWrite(ACTUATOR_PIN, HIGH);  // Relay off
+  // Drive motor reverse (raise actuator)
+  digitalWrite(ACTUATOR_IN1, LOW);
+  digitalWrite(ACTUATOR_IN2, HIGH);
+  analogWrite(ACTUATOR_ENA, ACTUATOR_SPEED);
+}
+
+void stopPrimaryActuator() {
+  digitalWrite(ACTUATOR_IN1, LOW);
+  digitalWrite(ACTUATOR_IN2, LOW);
+  analogWrite(ACTUATOR_ENA, 0);
+}
+
+void extendRejectActuator() {
+  digitalWrite(REJECT_ACTUATOR_IN1, HIGH);
+  digitalWrite(REJECT_ACTUATOR_IN2, LOW);
+  analogWrite(REJECT_ACTUATOR_ENA, REJECT_ACTUATOR_SPEED);
+}
+
+void retractRejectActuator() {
+  digitalWrite(REJECT_ACTUATOR_IN1, LOW);
+  digitalWrite(REJECT_ACTUATOR_IN2, HIGH);
+  analogWrite(REJECT_ACTUATOR_ENA, REJECT_ACTUATOR_SPEED);
+}
+
+void stopRejectActuator() {
+  digitalWrite(REJECT_ACTUATOR_IN1, LOW);
+  digitalWrite(REJECT_ACTUATOR_IN2, LOW);
+  analogWrite(REJECT_ACTUATOR_ENA, 0);
 }
 
 void rejectDefectiveGallon() {
@@ -367,34 +499,93 @@ void rejectDefectiveGallon() {
   closeValve();
 
   Serial.println("REJECT:START");
-  extendActuator();
-  delay(REJECT_PUSH_TIME);
+
+  // Step 1: Ensure primary actuator is fully retracted before reject push.
   retractActuator();
+  delay(ACTUATOR_RETRACT_TIME);
+  stopPrimaryActuator();
+
+  // Step 2: Use second actuator to push defective gallon out.
+  extendRejectActuator();
+  delay(REJECT_PUSH_TIME);
+  retractRejectActuator();
+  delay(REJECT_RETRACT_TIME);
+  stopRejectActuator();
+
   Serial.println("REJECT:DONE");
 }
 
 float readPressure() {
-  float voltage_sum = 0.0;
-  
-  // Take 10 samples for stability
-  for (int i = 0; i < 10; i++) {
-    int raw_value = analogRead(PRESSURE_PIN);
-    float voltage = (raw_value / 1023.0) * 5.0;
-    voltage_sum += voltage;
-    delay(10);
-  }
-  
-  float avg_voltage = voltage_sum / 10.0;
-  
-  // Convert voltage to pressure (linear interpolation)
-  if (avg_voltage < PRESSURE_V_MIN) {
+  long raw = readPressureRaw24();
+  if (raw == PRESSURE_READ_TIMEOUT_SENTINEL) {
+    lastPressure = 0.0;
     return 0.0;
   }
-  
-  float pressure = ((avg_voltage - PRESSURE_V_MIN) / 
-                   (PRESSURE_V_MAX - PRESSURE_V_MIN)) * PRESSURE_P_MAX;
-  
+
+  float pressure = rawToPressure(raw);
+  lastPressure = pressure;
   return pressure;
+}
+
+long readPressureRaw24() {
+  unsigned long start = millis();
+  while (digitalRead(PRESSURE_OUT_PIN)) {
+    if (millis() - start > 1000) {
+      return PRESSURE_READ_TIMEOUT_SENTINEL;
+    }
+  }
+
+  long result = 0;
+  for (int i = 0; i < 24; i++) {
+    digitalWrite(PRESSURE_SCK_PIN, HIGH);
+    digitalWrite(PRESSURE_SCK_PIN, LOW);
+    result = result << 1;
+    if (digitalRead(PRESSURE_OUT_PIN)) {
+      result++;
+    }
+  }
+
+  // Convert from two's complement representation used by this module.
+  result = result ^ 0x800000;
+
+  // Start next reading cycle.
+  for (byte i = 0; i < 3; i++) {
+    digitalWrite(PRESSURE_SCK_PIN, HIGH);
+    digitalWrite(PRESSURE_SCK_PIN, LOW);
+  }
+
+  return result;
+}
+
+float rawToPressure(long raw) {
+  float span = (float)(PRESSURE_RAW_AT_MAX - PRESSURE_RAW_AT_0);
+  if (span == 0.0) {
+    return 0.0;
+  }
+
+  float pressure = ((float)(raw - PRESSURE_RAW_AT_0) / span) * PRESSURE_MAX;
+  if (pressure < 0.0) pressure = 0.0;
+  return pressure;
+}
+
+bool isLeakDetected(float pressureValue) {
+  return pressureValue < NO_LEAK_PRESSURE;
+}
+
+float toRelativePressure(float absolutePressure, float baselinePressure) {
+  if (baselinePressure < 0.0) {
+    return absolutePressure;
+  }
+
+  float relative = absolutePressure - baselinePressure;
+  if (relative < 0.0) {
+    relative = 0.0;
+  }
+  return relative;
+}
+
+float requiredRiseForNoLeak(float baselinePressure) {
+  return NO_LEAK_PRESSURE;
 }
 
 long getUltrasonicDistance() {
@@ -433,6 +624,7 @@ void handleSerialCommands() {
         systemRunning = true;
         digitalWrite(LED_STATUS, HIGH);
         gallonsProcessed = 0;
+        pressureBaseline = -1.0;
         changeState(CHECKING_PRESSURE);
         Serial.println("SYSTEM:STARTED");
       } else {
@@ -444,20 +636,66 @@ void handleSerialCommands() {
       stopConveyor();
       closeValve();
       retractActuator();
+      stopPrimaryActuator();
+      stopRejectActuator();
       digitalWrite(LED_STATUS, LOW);
       changeState(IDLE);
       Serial.println("SYSTEM:STOPPED");
     }
     else if (command == "STATUS") {
+      float baselineAbs = readPressure();
+      pressureBaseline = baselineAbs;
+      float latestAbs = baselineAbs;
+      int statusHighStreak = 0;
+      unsigned long testStart = millis();
+
+      Serial.println("PRESSURE:TEST_START");
+      Serial.print("PRESSURE:BASELINE ");
+      Serial.println(0.0, 1);
+
+      while (millis() - testStart < PRESSURE_TEST_TIME_MS) {
+        latestAbs = readPressure();
+        float latestRel = toRelativePressure(latestAbs, pressureBaseline);
+        float requiredRiseNow = requiredRiseForNoLeak(pressureBaseline);
+
+        if (latestRel >= requiredRiseNow) {
+          statusHighStreak++;
+        } else {
+          statusHighStreak = 0;
+        }
+
+        Serial.print("PRESSURE:");
+        Serial.println(latestRel, 1);
+        delay(PRESSURE_CHECK_INTERVAL);
+      }
+
+      float latestRel = toRelativePressure(latestAbs, pressureBaseline);
+      float requiredRise = requiredRiseForNoLeak(pressureBaseline);
+      bool leakDetected = (statusHighStreak < CONSISTENT_HIGH_READS_REQUIRED);
+
       Serial.print("State: ");
       printState();
       Serial.print("Running: ");
       Serial.println(systemRunning ? "YES" : "NO");
       Serial.print("Gallons processed: ");
       Serial.println(gallonsProcessed);
+
+      // Machine-readable lines used by the Python workflow parser
+      Serial.print("PRESSURE:");
+      Serial.println(latestRel, 1);
+
+      Serial.print("PRESSURE:THRESHOLD=");
+      Serial.println(requiredRise, 1);
+
+      if (leakDetected) {
+        Serial.println("LEAK:DETECTED");
+      } else {
+        Serial.println("LEAK:OK");
+      }
+
+      // Human-readable diagnostics
       Serial.print("Pressure: ");
-      Serial.print(readPressure(), 1);
-      Serial.println(" PSI");
+      Serial.println(latestRel, 1);
       Serial.print("Distance: ");
       Serial.print(getUltrasonicDistance());
       Serial.println(" cm");
@@ -467,13 +705,24 @@ void handleSerialCommands() {
       stopConveyor();
       closeValve();
       retractActuator();
+      stopPrimaryActuator();
+      stopRejectActuator();
       digitalWrite(LED_STATUS, LOW);
       changeState(IDLE);
       gallonsProcessed = 0;
+      pressureBaseline = -1.0;
       Serial.println("SYSTEM:RESET");
     }
     else if (command == "REJECT") {
       rejectDefectiveGallon();
+    }
+    else if (command == "LOWER") {
+      extendActuator();
+      Serial.println("ACTUATOR:LOWERED");
+    }
+    else if (command == "RAISE") {
+      retractActuator();
+      Serial.println("ACTUATOR:RAISED");
     }
     else {
       Serial.print("ERROR: Unknown command: ");

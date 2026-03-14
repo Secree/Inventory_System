@@ -78,9 +78,13 @@ class InventoryApp:
             print(f"[WARNING] Pressure sensor not available: {e}")
             self.pressure_sensor = None
         
-        # Arduino serial connection for automated workflow
+        # Arduino1 serial connection for automated workflow
         self.arduino_serial = None
         self.arduino_port = None
+        # Arduino2 serial connection for secondary fill controller
+        self.fill_arduino_serial = None
+        self.fill_arduino_port = None
+        self.fill_arduino_preferred_port = "COM7"
         self.workflow_state = "IDLE"  # IDLE, SCANNING, CHECKING_DEFECT, CHECKING_PRESSURE, MOVING, FILLING, COMPLETE
         self.current_gallon_id = None
         self.workflow_running = False
@@ -532,17 +536,27 @@ class InventoryApp:
         tk.Label(banner, text="🤖 Automated Gallon Workflow",
                  font=("Arial", 14, "bold"), bg="#2c3e50", fg="white").pack(side=tk.LEFT)
 
-        # Arduino connection badge on the right of banner
-        self.arduino_status_label = tk.Label(
-            banner, text="⚠ Arduino: Not Connected",
-            font=("Arial", 9, "bold"), bg="#e74c3c", fg="white", padx=8, pady=4
-        )
-        self.arduino_status_label.pack(side=tk.RIGHT, padx=(10, 0))
+        right_banner = tk.Frame(banner, bg="#2c3e50")
+        right_banner.pack(side=tk.RIGHT)
 
-        tk.Button(banner, text="🔄 Connect", command=self.connect_arduino,
+        tk.Button(right_banner, text="🔄 Connect", command=self.connect_arduino,
                   bg="#3498db", fg="white", font=("Arial", 9, "bold"),
                   cursor="hand2", padx=8, pady=4, relief=tk.FLAT
         ).pack(side=tk.RIGHT)
+
+        self.fill_arduino_status_label = tk.Label(
+            right_banner, text="⚠ Arduino2: Not Connected",
+            font=("Arial", 9, "bold"), bg="#e74c3c", fg="white", padx=8, pady=4
+        )
+        self.fill_arduino_status_label.pack(side=tk.RIGHT, padx=(10, 0))
+
+        # Arduino connection badge on the right of banner
+        self.arduino_status_label = tk.Label(
+            banner, text="⚠ Arduino1: Not Connected",
+            font=("Arial", 9, "bold"), bg="#e74c3c", fg="white", padx=8, pady=4
+        )
+        self.arduino_status_label.pack(side=tk.RIGHT, padx=(10, 0))
+        self.refresh_arduino_connection_badges()
 
         # ── LEFT COLUMN: Steps 1, 2, 3 ──────────────────────────────────────
         left = tk.Frame(parent, padx=8, pady=8)
@@ -619,7 +633,7 @@ class InventoryApp:
         self.pressure_status_label.grid(row=0, column=0, sticky="ew")
 
         self.pressure_value_label = tk.Label(
-            step3, text="Pressure: -- PSI",
+            step3, text="Pressure: --",
             font=("Arial", 10), bg="#f0f4f8", fg="#555"
         )
         self.pressure_value_label.grid(row=1, column=0, pady=(2, 6))
@@ -1850,10 +1864,20 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             return None
     
     def connect_arduino(self):
-        """Connect to Arduino for automated workflow"""
+        """Connect to Arduino1 for automated workflow"""
         try:
             self.arduino_firmware_unsupported = False
             self.arduino_firmware_warned = False
+
+            # Proactively connect Arduino2 so user can verify it is reachable.
+            fill_connected = self.ensure_fill_arduino_connected()
+            if fill_connected:
+                self.log_workflow(f"✓ Arduino2 ready on {self.fill_arduino_port}")
+            else:
+                self.log_workflow(
+                    f"⚠ Arduino2 not detected on {self.fill_arduino_preferred_port}. "
+                    "Check USB cable/port and close Serial Monitor."
+                )
 
             # If we already hold a serial handle, close it before reconnecting.
             if self.arduino_serial and hasattr(self.arduino_serial, 'is_open') and self.arduino_serial.is_open:
@@ -1872,30 +1896,31 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     and self.pressure_sensor.sensor.is_open):
                 self.arduino_serial = self.pressure_sensor.sensor
                 self.arduino_port = self.arduino_serial.port
-                self.log_workflow(f"✓ Connected to Arduino on {self.arduino_port} (shared connection)")
-                self.arduino_status_label.config(
-                    text=f"✓ Connected: {self.arduino_port}",
-                    bg="#27ae60"
-                )
+                self.log_workflow(f"✓ Connected to Arduino1 on {self.arduino_port} (shared connection)")
+                self.refresh_arduino_connection_badges()
                 self.start_arduino_monitor()
                 return True
 
             # PressureSensor not available — open a fresh connection
             ports = list(serial.tools.list_ports.comports())
             if not ports:
-                self.log_workflow("⚠ No Arduino found")
-                return False
+                self.log_workflow("⚠ No Arduino1 found")
+                return fill_connected
 
             # Prioritize COM11, then likely Arduino USB serial devices.
+            # Never use Arduino2 preferred port for Arduino1 connection.
+            blocked_port = self.fill_arduino_preferred_port
             priority_ports = []
             for port in ports:
-                if port.device == 'COM11':
+                if port.device == 'COM11' and port.device != blocked_port:
                     priority_ports.append(port.device)
             for port in ports:
-                if ('Arduino' in port.description or 'CH340' in port.description or 'USB Serial' in port.description) and port.device not in priority_ports:
+                if (port.device != blocked_port and
+                        ('Arduino' in port.description or 'CH340' in port.description or 'USB Serial' in port.description) and
+                        port.device not in priority_ports):
                     priority_ports.append(port.device)
             for port in ports:
-                if port.device not in priority_ports:
+                if port.device != blocked_port and port.device not in priority_ports:
                     priority_ports.append(port.device)
 
             last_error = None
@@ -1905,11 +1930,32 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     self.arduino_port = candidate
                     time.sleep(2)  # Wait for Arduino to reset
 
-                    self.log_workflow(f"✓ Connected to Arduino on {candidate}")
-                    self.arduino_status_label.config(
-                        text=f"✓ Connected: {candidate}",
-                        bg="#27ae60"
-                    )
+                    # Identify Arduino2 fill firmware and skip it for Arduino1 slot.
+                    banner = []
+                    probe_deadline = time.time() + 0.8
+                    while time.time() < probe_deadline:
+                        if self.arduino_serial.in_waiting:
+                            line = self.arduino_serial.readline().decode('utf-8', errors='ignore').strip()
+                            if line:
+                                banner.append(line.upper())
+                        else:
+                            time.sleep(0.05)
+
+                    banner_text = " ".join(banner)
+                    if ("ENABLE | DISABLE | STATUS" in banner_text or
+                            "FILL:ENABLED" in banner_text or
+                            "FILL:DISABLED" in banner_text):
+                        self.log_workflow(f"⚠ {candidate} appears to be Arduino2 firmware; skipping for Arduino1")
+                        try:
+                            self.arduino_serial.close()
+                        except Exception:
+                            pass
+                        self.arduino_serial = None
+                        self.arduino_port = None
+                        continue
+
+                    self.log_workflow(f"✓ Connected to Arduino1 on {candidate}")
+                    self.refresh_arduino_connection_badges()
 
                     # Start monitoring thread
                     self.start_arduino_monitor()
@@ -1918,15 +1964,19 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     last_error = err
                     self.log_workflow(f"⚠ Could not open {candidate}: {err}")
 
-            self.log_workflow("❌ Could not open any serial port. Close Arduino Serial Monitor/other apps using COM ports and try Connect again.")
+            self.log_workflow("❌ Could not open any serial port for Arduino1. Close Arduino Serial Monitor/other apps using COM ports and try Connect again.")
             if last_error:
                 self.log_workflow(f"❌ Last port error: {last_error}")
             self.arduino_serial = None
-            return False
+            self.arduino_port = None
+            self.refresh_arduino_connection_badges()
+            return fill_connected
 
         except Exception as e:
-            self.log_workflow(f"❌ Arduino connection error: {e}")
+            self.log_workflow(f"❌ Arduino1 connection error: {e}")
             self.arduino_serial = None
+            self.arduino_port = None
+            self.refresh_arduino_connection_badges()
             return False
     
     def start_arduino_monitor(self):
@@ -1942,14 +1992,168 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 except Exception as e:
                     print(f"Monitor error: {e}")
                     break
+            self.root.after(0, self.refresh_arduino_connection_badges)
         
         monitor_thread = threading.Thread(target=monitor, daemon=True)
         monitor_thread.start()
+
+    def ensure_fill_arduino_connected(self):
+        """Connect to Arduino2 (secondary controller for solenoid fill)."""
+        if self.fill_arduino_serial and self.fill_arduino_serial.is_open:
+            self.refresh_arduino_connection_badges()
+            return True
+
+        ports = list(serial.tools.list_ports.comports())
+        if not ports:
+            return False
+
+        candidates = []
+        if self.fill_arduino_preferred_port:
+            candidates.append(self.fill_arduino_preferred_port)
+
+        for port in ports:
+            if port.device == self.arduino_port:
+                continue
+            if ('Arduino' in port.description or 'CH340' in port.description or 'USB Serial' in port.description):
+                if port.device not in candidates:
+                    candidates.append(port.device)
+        for port in ports:
+            if port.device != self.arduino_port and port.device not in candidates:
+                candidates.append(port.device)
+
+        for candidate in candidates:
+            try:
+                ser = serial.Serial(candidate, 9600, timeout=1)
+                time.sleep(1.5)
+                self.fill_arduino_serial = ser
+                self.fill_arduino_port = candidate
+                self.log_workflow(f"✓ Connected to Arduino2 on {candidate}")
+                self.refresh_arduino_connection_badges()
+                self.start_fill_arduino_monitor()
+                return True
+            except Exception:
+                continue
+
+            self.fill_arduino_serial = None
+            self.fill_arduino_port = None
+            self.refresh_arduino_connection_badges()
+        return False
+
+    def start_fill_arduino_monitor(self):
+        """Start thread to monitor Arduino2 fill-controller responses."""
+        def monitor_fill():
+            while self.fill_arduino_serial and self.fill_arduino_serial.is_open:
+                try:
+                    if self.fill_arduino_serial.in_waiting:
+                        line = self.fill_arduino_serial.readline().decode('utf-8', errors='ignore').strip()
+                        if line:
+                            self.process_fill_arduino_response(line)
+                    time.sleep(0.1)
+                except Exception:
+                    break
+            self.root.after(0, self.refresh_arduino_connection_badges)
+
+        monitor_thread = threading.Thread(target=monitor_fill, daemon=True)
+        monitor_thread.start()
+
+    def refresh_arduino_connection_badges(self):
+        """Refresh top-banner connection badges for Arduino1 and Arduino2."""
+        if hasattr(self, 'arduino_status_label'):
+            arduino1_connected = bool(
+                self.arduino_serial and
+                hasattr(self.arduino_serial, 'is_open') and
+                self.arduino_serial.is_open
+            )
+            if arduino1_connected and self.arduino_port:
+                self.arduino_status_label.config(text=f"✓ Arduino1: {self.arduino_port}", bg="#27ae60")
+            else:
+                self.arduino_status_label.config(text="⚠ Arduino1: Not Connected", bg="#e74c3c")
+
+        if hasattr(self, 'fill_arduino_status_label'):
+            arduino2_connected = bool(
+                self.fill_arduino_serial and
+                hasattr(self.fill_arduino_serial, 'is_open') and
+                self.fill_arduino_serial.is_open
+            )
+            if arduino2_connected and self.fill_arduino_port:
+                self.fill_arduino_status_label.config(text=f"✓ Arduino2: {self.fill_arduino_port}", bg="#27ae60")
+            else:
+                self.fill_arduino_status_label.config(text="⚠ Arduino2: Not Connected", bg="#e74c3c")
+
+    def process_fill_arduino_response(self, response):
+        """Process responses from Arduino2 (ultrasonic + solenoid fill controller)."""
+        self.log_workflow(f"Arduino2: {response}")
+
+        if "DISTANCE:" in response:
+            try:
+                distance = response.split(":")[1].replace("cm", "").strip()
+                self.root.after(0, lambda: self.ultrasonic_distance_label.config(text=f"Distance: {distance} cm"))
+                if _IOT_AVAILABLE:
+                    web_server.update_sensor_state(distance_cm=float(distance), workflow_state=self.workflow_state)
+            except Exception:
+                pass
+
+        elif "GALLON:DETECTED" in response:
+            self.root.after(0, lambda: self.position_status.config(text="●", fg="#2ecc71"))
+            if self.workflow_state == "MOVING":
+                self.root.after(0, lambda: self.filling_status_label.config(
+                    text="⏳ Gallon detected, waiting fill delay...",
+                    bg="#f39c12",
+                    fg="white"
+                ))
+
+        elif "FILLING:START" in response:
+            if self.workflow_state in ("MOVING", "SCANNING", "CHECKING_PRESSURE"):
+                self.workflow_state = "FILLING"
+                self.root.after(0, self.workflow_start_filling)
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(valve_open=True, workflow_state="FILLING")
+            self.root.after(0, lambda: self.valve_status.config(text="●", fg="#3498db"))
+            self.root.after(0, lambda: self.filling_status_label.config(
+                text="💧 Filling in progress...",
+                bg="#3498db",
+                fg="white"
+            ))
+
+        elif "FILLING:COMPLETE" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(valve_open=False, workflow_state="COMPLETE")
+            self.root.after(0, lambda: self.valve_status.config(text="●", fg="#95a5a6"))
+            self.root.after(0, lambda: self.water_level_status.config(text="●", fg="#2ecc71"))
+            self.root.after(0, lambda: self.filling_status_label.config(
+                text="✓ Filling Complete!",
+                bg="#27ae60",
+                fg="white"
+            ))
+            self.workflow_state = "COMPLETE"
+            self.root.after(0, self.workflow_complete)
+
+        elif "FILLING:STOPPED_NO_GALLON" in response:
+            self.root.after(0, lambda: self.valve_status.config(text="●", fg="#95a5a6"))
+            self.root.after(0, lambda: self.filling_status_label.config(
+                text="⚠ Gallon removed during fill",
+                bg="#e67e22",
+                fg="white"
+            ))
+
+    def send_fill_arduino_command(self, command):
+        """Send command to Arduino2 fill controller."""
+        if not self.ensure_fill_arduino_connected():
+            self.log_workflow(f"⚠ Arduino2 not connected (skipped command: {command})")
+            return False
+
+        try:
+            self.fill_arduino_serial.write(f"{command}\n".encode())
+            self.fill_arduino_serial.flush()
+            return True
+        except Exception as e:
+            self.log_workflow(f"⚠ Arduino2 send error ({command}): {e}")
+            return False
     
     def send_arduino_command(self, command):
-        """Send command to Arduino"""
+        """Send command to Arduino1"""
         if self.arduino_firmware_unsupported:
-            self.log_workflow(f"⚠ Command blocked ({command}): unsupported Arduino firmware")
+            self.log_workflow(f"⚠ Command blocked ({command}): unsupported Arduino1 firmware")
             return False
 
         if self.arduino_serial and self.arduino_serial.is_open:
@@ -1964,7 +2168,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def process_arduino_response(self, response):
         """Process responses from Arduino"""
-        self.log_workflow(f"Arduino: {response}")
+        self.log_workflow(f"Arduino1: {response}")
 
         upper = response.upper()
         xtl_markers = (
@@ -1986,9 +2190,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
             if not self.arduino_firmware_warned:
                 self.arduino_firmware_warned = True
-                self.log_workflow("⚠ Unsupported XTL firmware detected. Upload automated_refill_system.ino.")
+                self.log_workflow("⚠ Unsupported Arduino1 firmware detected. Upload automated_refill_system.ino.")
                 self.root.after(0, lambda: self.arduino_status_label.config(
-                    text="⚠ Unsupported Firmware",
+                    text="⚠ Arduino1 Firmware",
                     bg="#e74c3c"
                 ))
             return
@@ -1996,8 +2200,11 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Update UI based on responses
         if "PRESSURE:" in response:
             try:
-                pressure = float(response.split(":")[1].replace(" PSI", ""))
-                self.root.after(0, lambda: self.pressure_value_label.config(text=f"Pressure: {pressure:.1f} PSI"))
+                match = re.search(r'[-+]?\d*\.?\d+', response)
+                if not match:
+                    raise ValueError("No pressure number found")
+                pressure = float(match.group(0))
+                self.root.after(0, lambda: self.pressure_value_label.config(text=f"Pressure: {pressure:.1f}"))
                 if _IOT_AVAILABLE:
                     web_server.update_sensor_state(pressure_psi=pressure, workflow_state=self.workflow_state)
             except:
@@ -2020,6 +2227,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 bg="#e74c3c",
                 fg="white"
             ))
+            if self.arduino_serial and self.arduino_serial.is_open:
+                self.send_arduino_command("RAISE")
+                self.log_workflow("⬆ Actuator raised after leak check")
+            self.send_fill_arduino_command("DISABLE")
             self.root.after(0, lambda: self.enable_manual_defect_decision(
                 "❌ Leak detected. Confirm defect manually to trigger actuator."
             ))
@@ -2032,6 +2243,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 bg="#27ae60",
                 fg="white"
             ))
+            if self.arduino_serial and self.arduino_serial.is_open:
+                self.send_arduino_command("RAISE")
+                self.log_workflow("⬆ Actuator raised after pressure OK")
+            self.send_fill_arduino_command("ENABLE")
             if self.workflow_state == "CHECKING_PRESSURE":
                 self.workflow_state = "MOVING"
                 self.root.after(0, self.workflow_move_to_fill)
@@ -2049,10 +2264,16 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         elif "GALLON:DETECTED" in response:
             self.root.after(0, lambda: self.position_status.config(text="●", fg="#2ecc71"))
             if self.workflow_state == "MOVING":
-                self.workflow_state = "FILLING"
-                self.root.after(0, self.workflow_start_filling)
+                self.root.after(0, lambda: self.filling_status_label.config(
+                    text="⏳ Gallon detected, waiting fill delay...",
+                    bg="#f39c12",
+                    fg="white"
+                ))
         
         elif "FILLING:START" in response:
+            if self.workflow_state == "MOVING":
+                self.workflow_state = "FILLING"
+                self.root.after(0, self.workflow_start_filling)
             if _IOT_AVAILABLE:
                 web_server.update_sensor_state(valve_open=True, workflow_state="FILLING")
             self.root.after(0, lambda: self.valve_status.config(text="●", fg="#3498db"))
@@ -2134,6 +2355,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Send stop command to Arduino
         if self.arduino_serial:
             self.send_arduino_command("STOP")
+        self.send_fill_arduino_command("DISABLE")
         
         self.start_workflow_btn.config(state=tk.NORMAL)
         self.stop_workflow_btn.config(state=tk.DISABLED)
@@ -2156,7 +2378,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.qr_status_label.config(text="Waiting for scan...", fg="gray")
         self.defect_status_label.config(text="")
         self.pressure_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
-        self.pressure_value_label.config(text="Pressure: -- PSI")
+        self.pressure_value_label.config(text="Pressure: --")
         self.filling_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
         self.ultrasonic_distance_label.config(text="Distance: -- cm")
         
@@ -2175,6 +2397,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Send reset to Arduino
         if self.arduino_serial:
             self.send_arduino_command("RESET")
+        self.send_fill_arduino_command("DISABLE")
         
         self.log_workflow("🔄 Workflow reset")
     
@@ -2231,7 +2454,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             )
             self.auto_qr_input.delete(0, tk.END)
             
-            # Run automatic pressure check first (combined Step 2 flow)
+            # Lower actuator then wait 5 s before pressure check
             self.workflow_state = "CHECKING_PRESSURE"
             self.defect_btn.config(state=tk.DISABLED)
             self.no_defect_btn.config(state=tk.DISABLED)
@@ -2239,7 +2462,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 text="⏳ Running automatic pressure check...",
                 fg="#e67e22"
             )
-            self.workflow_check_pressure()
+            if self.arduino_serial and self.arduino_serial.is_open:
+                self.send_arduino_command("LOWER")
+                self.log_workflow("⬇ Actuator lowering...")
+            self._start_pressure_check_countdown(5)
         else:
             self.log_workflow(f"❌ Invalid QR code: {qr_data}")
             self.qr_status_label.config(
@@ -2303,6 +2529,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     bg="#27ae60",
                     fg="white"
                 )
+                self.send_fill_arduino_command("ENABLE")
+                self.log_workflow("✓ Arduino2 enabled after manual no-defect decision")
                 self.workflow_state = "MOVING"
                 self.workflow_move_to_fill()
             else:
@@ -2312,6 +2540,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     text="✓ No defect detected",
                     fg="#27ae60"
                 )
+                self.send_fill_arduino_command("ENABLE")
+                self.log_workflow("✓ Arduino2 enabled after no-defect decision")
                 self.workflow_state = "CHECKING_PRESSURE"
                 self.workflow_check_pressure()
 
@@ -2336,6 +2566,20 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.defect_btn.config(state=tk.NORMAL)
         self.no_defect_btn.config(state=tk.NORMAL)
     
+    def _start_pressure_check_countdown(self, seconds_left):
+        """Countdown after actuator lowered before starting pressure check."""
+        if self.workflow_state != "CHECKING_PRESSURE":
+            return
+        if seconds_left > 0:
+            self.pressure_status_label.config(
+                text=f"⏳ Actuator lowering... {seconds_left}s",
+                bg="#8e44ad",
+                fg="white"
+            )
+            self.root.after(1000, lambda: self._start_pressure_check_countdown(seconds_left - 1))
+        else:
+            self.workflow_check_pressure()
+
     def workflow_check_pressure(self):
         """Check pressure/leak"""
         self.log_workflow("Testing pressure...")
@@ -2358,14 +2602,15 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.enable_manual_defect_decision("⚠ Manual pressure dialog replaced by defect decision fallback")
 
     def _pressure_check_thread(self):
-        """Background thread: send STATUS, wait up to 5 s for Arduino response"""
+        """Background thread: send STATUS, wait for Arduino pressure test result"""
         if not self.send_arduino_command("STATUS"):
             self.root.after(0, lambda: self.enable_manual_defect_decision(
                 "⚠ Failed to request pressure status. Manual defect decision required."
             ))
             return
 
-        deadline = time.time() + 5
+        # Arduino STATUS pressure test now runs for ~15 seconds.
+        deadline = time.time() + 22
         while time.time() < deadline:
             time.sleep(0.2)
             # process_arduino_response() handles state transitions;
@@ -2426,6 +2671,14 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 self.send_arduino_command("STOP")
                 time.sleep(0.5)
                 self.arduino_serial.close()
+            except:
+                pass
+
+        if self.fill_arduino_serial and self.fill_arduino_serial.is_open:
+            try:
+                self.send_fill_arduino_command("DISABLE")
+                time.sleep(0.2)
+                self.fill_arduino_serial.close()
             except:
                 pass
         

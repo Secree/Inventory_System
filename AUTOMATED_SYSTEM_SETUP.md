@@ -69,11 +69,11 @@ Complete interconnected system that automatically processes water gallons throug
 ### Complete Wiring
 
 ```
-PRESSURE SENSOR (MPX5700AP) → Arduino:
-  Pin 1 (Vout/Signal) ────────> Arduino A0
-  Pin 2 (GND)         ────────> Arduino GND
-  Pin 3 (+5V)         ────────> Arduino 5V
-
+PRESSURE SENSOR (digital module with GND/SCK/OUT/VCC) → Arduino:
+    GND -> Arduino GND
+    VCC -> Arduino 5V (or 3.3V if your sensor board requires 3.3V)
+  SCK -> Arduino Pin 3
+  OUT -> Arduino Pin 2
 CONVEYOR MOTOR (via L298N Driver) → Arduino:
   ENA (Speed Control) ────────> Arduino Pin 6 (PWM)
   IN1 (Direction)     ────────> Arduino Pin 7

@@ -25,6 +25,10 @@ _sensor_state: dict = {
     "valve_open": False,
     "conveyor_running": False,
     "leak_detected": False,
+    "arduino1_connected": False,
+    "arduino1_port": None,
+    "arduino2_connected": False,
+    "arduino2_port": None,
     "workflow_state": "IDLE",
     "last_updated": None,
 }
@@ -143,7 +147,8 @@ def api_sensor_post():
     if not data:
         abort(400, description="Expected JSON body")
     allowed = {"pressure_psi", "distance_cm", "valve_open",
-                "conveyor_running", "leak_detected", "workflow_state"}
+                "conveyor_running", "leak_detected", "workflow_state",
+                "arduino1_connected", "arduino1_port", "arduino2_connected", "arduino2_port"}
     update_sensor_state(**{k: v for k, v in data.items() if k in allowed})
     return jsonify({"success": True})
 
