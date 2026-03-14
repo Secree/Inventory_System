@@ -138,6 +138,7 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
+const int ACTUATOR_EXTEND_TIME = 1200;    // ms - time for primary actuator to fully extend
 const int ACTUATOR_RETRACT_TIME = 1200;   // ms - time for primary actuator to fully retract
 const int REJECT_PUSH_TIME = 1200;        // ms - reject pusher extend time
 const int REJECT_RETRACT_TIME = 1200;     // ms - reject pusher retract time
@@ -175,6 +176,8 @@ float rawToPressure(long raw);
 bool isLeakDetected(float pressureValue);
 float toRelativePressure(float absolutePressure, float baselinePressure);
 float requiredRiseForNoLeak(float baselinePressure);
+void lowerPrimaryActuator(bool announceComplete = true);
+void raisePrimaryActuator(bool announceComplete = true);
 void stopPrimaryActuator();
 void extendRejectActuator();
 void retractRejectActuator();
@@ -470,6 +473,26 @@ void retractActuator() {
   analogWrite(ACTUATOR_ENA, ACTUATOR_SPEED);
 }
 
+void lowerPrimaryActuator(bool announceComplete) {
+  extendActuator();
+  delay(ACTUATOR_EXTEND_TIME);
+  stopPrimaryActuator();
+
+  if (announceComplete) {
+    Serial.println("ACTUATOR:LOWERED");
+  }
+}
+
+void raisePrimaryActuator(bool announceComplete) {
+  retractActuator();
+  delay(ACTUATOR_RETRACT_TIME);
+  stopPrimaryActuator();
+
+  if (announceComplete) {
+    Serial.println("ACTUATOR:RAISED");
+  }
+}
+
 void stopPrimaryActuator() {
   digitalWrite(ACTUATOR_IN1, LOW);
   digitalWrite(ACTUATOR_IN2, LOW);
@@ -501,9 +524,7 @@ void rejectDefectiveGallon() {
   Serial.println("REJECT:START");
 
   // Step 1: Ensure primary actuator is fully retracted before reject push.
-  retractActuator();
-  delay(ACTUATOR_RETRACT_TIME);
-  stopPrimaryActuator();
+  raisePrimaryActuator(false);
 
   // Step 2: Use second actuator to push defective gallon out.
   extendRejectActuator();
@@ -635,14 +656,15 @@ void handleSerialCommands() {
       systemRunning = false;
       stopConveyor();
       closeValve();
-      retractActuator();
-      stopPrimaryActuator();
+      raisePrimaryActuator(false);
       stopRejectActuator();
       digitalWrite(LED_STATUS, LOW);
       changeState(IDLE);
       Serial.println("SYSTEM:STOPPED");
     }
     else if (command == "STATUS") {
+      lowerPrimaryActuator();
+
       float baselineAbs = readPressure();
       pressureBaseline = baselineAbs;
       float latestAbs = baselineAbs;
@@ -704,8 +726,7 @@ void handleSerialCommands() {
       systemRunning = false;
       stopConveyor();
       closeValve();
-      retractActuator();
-      stopPrimaryActuator();
+      raisePrimaryActuator(false);
       stopRejectActuator();
       digitalWrite(LED_STATUS, LOW);
       changeState(IDLE);
@@ -717,12 +738,10 @@ void handleSerialCommands() {
       rejectDefectiveGallon();
     }
     else if (command == "LOWER") {
-      extendActuator();
-      Serial.println("ACTUATOR:LOWERED");
+      lowerPrimaryActuator();
     }
     else if (command == "RAISE") {
-      retractActuator();
-      Serial.println("ACTUATOR:RAISED");
+      raisePrimaryActuator();
     }
     else {
       Serial.print("ERROR: Unknown command: ");
