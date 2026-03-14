@@ -1909,7 +1909,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
             # Prioritize COM11, then likely Arduino USB serial devices.
             # Never use Arduino2 preferred port for Arduino1 connection.
-            blocked_port = self.fill_arduino_preferred_port
+            # Use the actual connected port (fill_arduino_port) if available,
+            # otherwise fall back to the preferred port setting.
+            blocked_port = self.fill_arduino_port or self.fill_arduino_preferred_port
             priority_ports = []
             for port in ports:
                 if port.device == 'COM11' and port.device != blocked_port:
