@@ -140,6 +140,7 @@ const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
 const int ACTUATOR_EXTEND_TIME = 2000;   // ms - time for primary actuator to fully extend
 const int ACTUATOR_RETRACT_TIME = 2000;  // ms - time for primary actuator to fully retract
+const int ACTUATOR_HALF_EXTEND_TIME = ACTUATOR_EXTEND_TIME / 2;  // ms - 50% extension stroke
 const int REJECT_PUSH_TIME = 1200;        // ms - reject pusher extend time
 const int REJECT_RETRACT_TIME = 1200;     // ms - reject pusher retract time
 
@@ -177,6 +178,7 @@ bool isLeakDetected(float pressureValue);
 float toRelativePressure(float absolutePressure, float baselinePressure);
 float requiredRiseForNoLeak(float baselinePressure);
 void lowerPrimaryActuator(bool announceComplete = true);
+void lowerPrimaryActuatorHalf(bool announceComplete = true);
 void raisePrimaryActuator(bool announceComplete = true);
 void stopPrimaryActuator();
 void extendRejectActuator();
@@ -483,6 +485,16 @@ void lowerPrimaryActuator(bool announceComplete) {
   }
 }
 
+void lowerPrimaryActuatorHalf(bool announceComplete) {
+  extendActuator();
+  delay(ACTUATOR_HALF_EXTEND_TIME);
+  stopPrimaryActuator();
+
+  if (announceComplete) {
+    Serial.println("ACTUATOR:LOWERED_HALF");
+  }
+}
+
 void raisePrimaryActuator(bool announceComplete) {
   retractActuator();
   delay(ACTUATOR_RETRACT_TIME);
@@ -739,6 +751,9 @@ void handleSerialCommands() {
     }
     else if (command == "LOWER") {
       lowerPrimaryActuator();
+    }
+    else if (command == "LOWER_HALF") {
+      lowerPrimaryActuatorHalf();
     }
     else if (command == "RAISE") {
       raisePrimaryActuator();
