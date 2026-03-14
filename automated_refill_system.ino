@@ -102,9 +102,9 @@ const int VALVE_PIN = 4;
 //   ENA  -> Arduino Pin 5 (PWM speed)
 //   IN1  -> Arduino Pin 6
 //   IN2  -> Arduino Pin 9
-const int ACTUATOR_ENA   = 5;   // PWM enable
-const int ACTUATOR_IN1   = 6;   // Direction control 1 (extend = lower)
-const int ACTUATOR_IN2   = 9;   // Direction control 2 (retract = raise)
+const int ACTUATOR_ENA   = 9;   // PWM enable
+const int ACTUATOR_IN1   = 5;   // Direction control 1 (extend = lower)
+const int ACTUATOR_IN2   = 6;   // Direction control 2 (retract = raise)
 const int ACTUATOR_SPEED = 200; // PWM speed (0-255)
 
 // Reject actuator DC motor (L298N via 12V supply)
