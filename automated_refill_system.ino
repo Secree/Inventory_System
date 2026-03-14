@@ -489,6 +489,7 @@ void raisePrimaryActuator(bool announceComplete) {
   retractActuator();
   delay(ACTUATOR_RETRACT_TIME);
   stopPrimaryActuator();
+  delay(PRESSURE_RESULT_DELAY);
 
   if (announceComplete) {
     Serial.println("ACTUATOR:RAISED");
