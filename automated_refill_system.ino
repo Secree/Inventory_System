@@ -123,7 +123,7 @@ const int LED_STATUS = 13;    // System running indicator
 // SYSTEM PARAMETERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-const float NO_LEAK_PRESSURE = 37.0;      // Required relative pressure rise above baseline for no-leak
+const float NO_LEAK_PRESSURE = 36.0;      // Required relative pressure rise above baseline for no-leak
 const unsigned long PRESSURE_TEST_TIME_MS = 15000;  // Wait 15 seconds before leak decision
 const int CONSISTENT_HIGH_READS_REQUIRED = 3;        // Consecutive reads above threshold needed for no-leak
 
@@ -140,7 +140,7 @@ const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
 const int ACTUATOR_EXTEND_TIME = 600;    // ms - time for primary actuator to fully extend
 const int ACTUATOR_RETRACT_TIME = 600;   // ms - time for primary actuator to fully retract
-const int PRESSURE_RESULT_DELAY = 2000;    // ms - wait after pressure check completes
+const int PRESSURE_RESULT_DELAY = 10000;    // ms - wait after pressure check completes
 const int REJECT_PUSH_TIME = 1200;        // ms - reject pusher extend time
 const int REJECT_RETRACT_TIME = 1200;     // ms - reject pusher retract time
 
