@@ -30,7 +30,6 @@ try:
 except ImportError:
     _IOT_AVAILABLE = False
 
-PRE_PRESSURE_INITIAL_DELAY_SEC = 2
 PRE_PRESSURE_POST_LOWER_DELAY_SEC = 2
 POST_PRESSURE_PRE_RAISE_DELAY_MS = 2000
 
@@ -2497,7 +2496,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             )
             self.auto_qr_input.delete(0, tk.END)
             
-            # Sequence: 2s delay -> lower to 50% -> 2s delay -> pressure check
+            # Sequence: lower actuator -> 2s delay -> pressure check
             self.workflow_state = "CHECKING_PRESSURE"
             self.defect_btn.config(state=tk.DISABLED)
             self.no_defect_btn.config(state=tk.DISABLED)
@@ -2505,8 +2504,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 text="⏳ Running automatic pressure check...",
                 fg="#e67e22"
             )
-            self.log_workflow("⏳ Waiting 2s before lowering actuator...")
-            self._start_pressure_check_countdown(PRE_PRESSURE_INITIAL_DELAY_SEC)
+            if self.arduino_serial and self.arduino_serial.is_open:
+                self.send_arduino_command("LOWER")
+                self.log_workflow("⬇ Actuator lowering...")
+            self._start_pressure_check_countdown(PRE_PRESSURE_POST_LOWER_DELAY_SEC)
         else:
             self.log_workflow(f"❌ Invalid QR code: {qr_data}")
             self.qr_status_label.config(
@@ -2608,26 +2609,18 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.no_defect_btn.config(state=tk.NORMAL)
     
     def _start_pressure_check_countdown(self, seconds_left):
-        """Countdown before half-lower actuator and before pressure check."""
+        """Countdown after lowering actuator before starting pressure check."""
         if self.workflow_state != "CHECKING_PRESSURE":
             return
         if seconds_left > 0:
             self.pressure_status_label.config(
-                text=f"⏳ Preparing pressure check... {seconds_left}s",
+                text=f"⏳ Waiting before pressure check... {seconds_left}s",
                 bg="#8e44ad",
                 fg="white"
             )
             self.root.after(1000, lambda: self._start_pressure_check_countdown(seconds_left - 1))
         else:
-            if self.arduino_serial and self.arduino_serial.is_open:
-                self.send_arduino_command("LOWER_HALF")
-                self.log_workflow("⬇ Actuator lowered to 50%")
-            self.pressure_status_label.config(
-                text="⏳ Waiting 2s before pressure check...",
-                bg="#8e44ad",
-                fg="white"
-            )
-            self.root.after(PRE_PRESSURE_POST_LOWER_DELAY_SEC * 1000, self.workflow_check_pressure)
+            self.workflow_check_pressure()
 
     def workflow_check_pressure(self):
         """Check pressure/leak"""
