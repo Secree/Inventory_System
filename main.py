@@ -2498,7 +2498,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             if self.arduino_serial and self.arduino_serial.is_open:
                 self.send_arduino_command("LOWER")
                 self.log_workflow("⬇ Actuator lowering...")
-            self._start_pressure_check_countdown(5)
+            self._start_pressure_check_countdown(10)
         else:
             self.log_workflow(f"❌ Invalid QR code: {qr_data}")
             self.qr_status_label.config(
