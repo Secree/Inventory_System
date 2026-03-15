@@ -16,12 +16,16 @@ const int TRIG_PIN = 9;
 const int ECHO_PIN = 10;
 const int RELAY_PIN = 7;
 const int LEVEL_SENSOR_PIN = 8;
+const int MOTOR_EN_PIN = 5;
+const int MOTOR_IN1_PIN = 6;
+const int MOTOR_IN2_PIN = 4;
 
 const float DETECTION_DISTANCE_CM = 7.0;
 const unsigned long FILL_START_DELAY_MS = 3000;
 const unsigned long MIN_FILL_TIME_MS = 1500;
 const unsigned long LEVEL_CONFIRM_MS = 400;
 const unsigned long LOOP_DELAY_MS = 120;
+const int CONVEYOR_SPEED = 200;
 
 const int RELAY_ON = LOW;
 const int RELAY_OFF = HIGH;
@@ -30,6 +34,7 @@ const int LEVEL_WATER_DETECTED_STATE = HIGH; // <-- flipped from LOW to HIGH
 bool fillEnabled = true;
 bool isFilling = false;
 bool gallonDetected = false;
+bool conveyorRunning = false;
 unsigned long gallonDetectedAt = 0;
 unsigned long fillStartedAt = 0;
 unsigned long levelDetectedAt = 0;
@@ -51,6 +56,30 @@ float readDistanceCm() {
 
 void setValve(bool open) {
   digitalWrite(RELAY_PIN, open ? RELAY_ON : RELAY_OFF);
+}
+
+void startConveyor() {
+  if (conveyorRunning) {
+    return;
+  }
+
+  digitalWrite(MOTOR_IN1_PIN, HIGH);
+  digitalWrite(MOTOR_IN2_PIN, LOW);
+  analogWrite(MOTOR_EN_PIN, CONVEYOR_SPEED);
+  conveyorRunning = true;
+  Serial.println("CONVEYOR:MOVING");
+}
+
+void stopConveyor() {
+  if (!conveyorRunning) {
+    return;
+  }
+
+  analogWrite(MOTOR_EN_PIN, 0);
+  digitalWrite(MOTOR_IN1_PIN, LOW);
+  digitalWrite(MOTOR_IN2_PIN, LOW);
+  conveyorRunning = false;
+  Serial.println("CONVEYOR:STOPPED");
 }
 
 void stopFilling(const char* reason) {
@@ -75,6 +104,7 @@ void handleCommand(String cmd) {
     fillStartedAt = 0;
     levelDetectedAt = 0;
     setValve(false);
+    startConveyor();
     Serial.println("FILL:ENABLED");
   } else if (cmd == "DISABLE") {
     fillEnabled = false;
@@ -84,10 +114,13 @@ void handleCommand(String cmd) {
     fillStartedAt = 0;
     levelDetectedAt = 0;
     setValve(false);
+    stopConveyor();
     Serial.println("FILL:DISABLED");
   } else if (cmd == "STATUS") {
     Serial.print("FILL:STATE=");
     Serial.println(fillEnabled ? "ENABLED" : "DISABLED");
+    Serial.print("CONVEYOR:");
+    Serial.println(conveyorRunning ? "MOVING" : "STOPPED");
     Serial.print("FILLING:");
     Serial.println(isFilling ? "YES" : "NO");
     Serial.print("DISTANCE:");
@@ -104,8 +137,12 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LEVEL_SENSOR_PIN, INPUT_PULLUP);
+  pinMode(MOTOR_EN_PIN, OUTPUT);
+  pinMode(MOTOR_IN1_PIN, OUTPUT);
+  pinMode(MOTOR_IN2_PIN, OUTPUT);
 
   setValve(false);
+  stopConveyor();
 
   Serial.begin(9600);
   while (!Serial) { ; }
@@ -129,6 +166,12 @@ void loop() {
   const float distance = fillEnabled ? readDistanceCm() : 999.0;
   const bool gallonInRange = fillEnabled && (distance <= DETECTION_DISTANCE_CM);
   const bool waterNearFull = (digitalRead(LEVEL_SENSOR_PIN) == LEVEL_WATER_DETECTED_STATE);
+
+  if (fillEnabled && !isFilling && !gallonInRange) {
+    startConveyor();
+  } else {
+    stopConveyor();
+  }
 
   if (gallonInRange) {
     if (!gallonDetected) {
