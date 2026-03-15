@@ -141,8 +141,8 @@ const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
 const int ACTUATOR_EXTEND_TIME = 5000;   // ms - time for primary actuator to fully extend
 const int ACTUATOR_RETRACT_TIME = 5000;  // ms - time for primary actuator to fully retract
 const int ACTUATOR_HALF_EXTEND_TIME = ACTUATOR_EXTEND_TIME / 2;  // ms - 50% extension stroke
-const int REJECT_PUSH_TIME = 1200;        // ms - reject pusher extend time
-const int REJECT_RETRACT_TIME = 1200;     // ms - reject pusher retract time
+const int REJECT_PUSH_TIME = 5000;        // ms - reject pusher extend time
+const int REJECT_RETRACT_TIME = 5000;     // ms - reject pusher retract time
 
 // Sampling delays
 const int PRESSURE_CHECK_INTERVAL = 1000;  // ms
