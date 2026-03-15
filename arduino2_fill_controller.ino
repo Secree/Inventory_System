@@ -16,9 +16,9 @@ const int TRIG_PIN = 9;
 const int ECHO_PIN = 10;
 const int RELAY_PIN = 7;
 const int LEVEL_SENSOR_PIN = 8;
-const int MOTOR_EN_PIN = 5;
-const int MOTOR_IN1_PIN = 6;
-const int MOTOR_IN2_PIN = 4;
+const int MOTOR_EN_PIN = 4;
+const int MOTOR_IN1_PIN = 5;
+const int MOTOR_IN2_PIN = 6;
 
 const float DETECTION_DISTANCE_CM = 7.0;
 const unsigned long FILL_START_DELAY_MS = 3000;
@@ -31,7 +31,7 @@ const int RELAY_ON = LOW;
 const int RELAY_OFF = HIGH;
 const int LEVEL_WATER_DETECTED_STATE = HIGH; // <-- flipped from LOW to HIGH
 
-bool fillEnabled = true;
+bool fillEnabled = false;
 bool isFilling = false;
 bool gallonDetected = false;
 bool conveyorRunning = false;
@@ -212,6 +212,9 @@ void loop() {
       bool levelStable = (millis() - levelDetectedAt) >= LEVEL_CONFIRM_MS;
       if (minFillElapsed && levelStable) {
         stopFilling("FILLING:COMPLETE");
+        fillEnabled = false;
+        stopConveyor();
+        Serial.println("FILL:DISABLED");
       }
     } else {
       levelDetectedAt = 0;
