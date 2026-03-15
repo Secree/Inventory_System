@@ -94,6 +94,7 @@ class InventoryApp:
         self.workflow_running = False
         self._qr_scan_after_id = None
         self._pre_lower_after_id = None
+        self._fill_serial_buffer = ""
         self.qr_scan_locked = False
         self.manual_defect_fallback = False
         self.arduino_firmware_unsupported = False
@@ -2067,6 +2068,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 time.sleep(1.5)
                 self.fill_arduino_serial = ser
                 self.fill_arduino_port = candidate
+                self._fill_serial_buffer = ""
                 self.log_workflow(f"✓ Connected to Arduino2 on {candidate}")
                 self.refresh_arduino_connection_badges()
                 self.start_fill_arduino_monitor()
@@ -2085,9 +2087,17 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             while self.fill_arduino_serial and self.fill_arduino_serial.is_open:
                 try:
                     if self.fill_arduino_serial.in_waiting:
-                        line = self.fill_arduino_serial.readline().decode('utf-8', errors='ignore').strip()
-                        if line:
-                            self.process_fill_arduino_response(line)
+                        raw = self.fill_arduino_serial.read(self.fill_arduino_serial.in_waiting)
+                        if raw:
+                            chunk = raw.decode('utf-8', errors='ignore')
+                            self._fill_serial_buffer += chunk
+
+                            # Process only complete lines and keep partial tail buffered.
+                            while '\n' in self._fill_serial_buffer:
+                                line, self._fill_serial_buffer = self._fill_serial_buffer.split('\n', 1)
+                                line = line.strip()
+                                if line:
+                                    self.process_fill_arduino_response(line)
                     time.sleep(0.1)
                 except Exception:
                     break
