@@ -31,11 +31,9 @@
  *   TRIG -> Arduino Pin 12
  *   ECHO -> Arduino Pin A0
  * 
- * SOLENOID VALVE (12V via Relay):
- *   VCC  -> Arduino 5V
- *   GND  -> Arduino GND
- *   IN   -> Arduino Pin 4
- *   Valve power -> External 12V supply
+ * SOLENOID VALVE:
+ *   Controlled by Arduino2 fill controller (RELAY_PIN = 7)
+ *   Arduino1 no longer drives a valve relay pin directly
 
  * PRIMARY ACTUATOR (seal actuator via L298N):
  *   ENA  -> Arduino Pin 5
@@ -52,6 +50,8 @@
  *   "STOP"   -> Stop system
  *   "STATUS" -> Get current system status
  *   "RESET"  -> Reset to initial state
+ *   "CONVEYOR_START" -> Start conveyor motor
+ *   "CONVEYOR_STOP"  -> Stop conveyor motor
  *   "REJECT" -> Extend reject actuator to eject defective gallon
  *   "LOWER"  -> Extend actuator down (seal gallon for pressure test)
  *   "RAISE"  -> Retract actuator up
@@ -94,9 +94,6 @@ const int MOTOR_ENA = 11;     // PWM speed control (0-255)
 const int TRIG_PIN = 12;
 const int ECHO_PIN = A0;
 
-// Solenoid Valve
-const int VALVE_PIN = 4;
-
 // Primary actuator DC motor (L298N via 12V supply)
 //   12V supply  -> L298N 12V / motor power
 //   ENA  -> Arduino Pin 5 (PWM speed)
@@ -132,7 +129,7 @@ const int GALLON_DETECTION_DISTANCE = 25;  // Gallon present at fill station
 const int WATER_FULL_DISTANCE = 8;         // Water level reached (close to sensor)
 
 // Conveyor timing
-const int CONVEYOR_SPEED = 200;           // PWM value (0-255)
+const int CONVEYOR_SPEED = 60;            // PWM value (0-255)
 const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 
 // Fill timing
@@ -193,10 +190,6 @@ void setup() {
   // Initialize serial communication
   Serial.begin(9600);
 
-  // Preload relay output to OFF before switching pin to OUTPUT.
-  // This avoids startup glitches where the relay momentarily energizes.
-  digitalWrite(VALVE_PIN, HIGH);
-
   // Preload actuator motor driver to stopped state before setting as OUTPUT.
   digitalWrite(ACTUATOR_IN1, LOW);
   digitalWrite(ACTUATOR_IN2, LOW);
@@ -216,7 +209,6 @@ void setup() {
   digitalWrite(PRESSURE_SCK_PIN, LOW);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
-  pinMode(VALVE_PIN, OUTPUT);
   pinMode(ACTUATOR_ENA, OUTPUT);
   pinMode(ACTUATOR_IN1, OUTPUT);
   pinMode(ACTUATOR_IN2, OUTPUT);
@@ -454,11 +446,11 @@ void stopConveyor() {
 }
 
 void openValve() {
-  digitalWrite(VALVE_PIN, LOW);  // Relay active-LOW for most modules
+  // Valve is controlled by Arduino2 fill controller.
 }
 
 void closeValve() {
-  digitalWrite(VALVE_PIN, HIGH);  // Relay off
+  // Valve is controlled by Arduino2 fill controller.
 }
 
 void extendActuator() {
@@ -744,6 +736,14 @@ void handleSerialCommands() {
       gallonsProcessed = 0;
       pressureBaseline = -1.0;
       Serial.println("SYSTEM:RESET");
+    }
+    else if (command == "CONVEYOR_START") {
+      startConveyor();
+      Serial.println("CONVEYOR:MOVING");
+    }
+    else if (command == "CONVEYOR_STOP") {
+      stopConveyor();
+      Serial.println("CONVEYOR:STOPPED");
     }
     else if (command == "REJECT") {
       rejectDefectiveGallon();

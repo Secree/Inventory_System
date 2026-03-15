@@ -92,6 +92,7 @@ class InventoryApp:
         self.current_gallon_id = None
         self.workflow_running = False
         self._qr_scan_after_id = None
+        self.qr_scan_locked = False
         self.manual_defect_fallback = False
         self.arduino_firmware_unsupported = False
         self.arduino_firmware_warned = False
@@ -2117,9 +2118,41 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             else:
                 self.fill_arduino_status_label.config(text="⚠ Arduino2: Not Connected", bg="#e74c3c")
 
+    def _should_log_arduino_response(self, response):
+        """Suppress high-frequency telemetry lines to keep workflow log readable."""
+        upper = response.upper().strip()
+
+        noisy_prefixes = (
+            "PRESSURE:",
+            "DISTANCE:",
+            "LEVEL_SENSOR_RAW:",
+            "WATER_DETECTED:",
+            "FILL:STATE=",
+            "STATE:",
+            "RUNNING:",
+            "GALLONS PROCESSED:",
+            "DETECTION_DISTANCE_CM:",
+            "FILL_START_DELAY_MS:",
+            "LEVEL_SENSOR_INITIAL:",
+            "PRESSURE:SCK_OUT_MODE",
+            "COMMANDS:"
+        )
+
+        noisy_exact = {
+            "READY",
+            "FILLING:YES",
+            "FILLING:NO"
+        }
+
+        if upper in noisy_exact:
+            return False
+
+        return not upper.startswith(noisy_prefixes)
+
     def process_fill_arduino_response(self, response):
         """Process responses from Arduino2 (ultrasonic + solenoid fill controller)."""
-        self.log_workflow(f"Arduino2: {response}")
+        if self._should_log_arduino_response(response):
+            self.log_workflow(f"Arduino2: {response}")
 
         if "DISTANCE:" in response:
             try:
@@ -2132,6 +2165,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
         elif "GALLON:DETECTED" in response:
             self.root.after(0, lambda: self.position_status.config(text="●", fg="#2ecc71"))
+            if self.arduino_serial and self.arduino_serial.is_open:
+                self.send_arduino_command("CONVEYOR_STOP")
             if self.workflow_state == "MOVING":
                 self.root.after(0, lambda: self.filling_status_label.config(
                     text="⏳ Gallon detected, waiting fill delay...",
@@ -2205,7 +2240,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def process_arduino_response(self, response):
         """Process responses from Arduino"""
-        self.log_workflow(f"Arduino1: {response}")
+        if self._should_log_arduino_response(response):
+            self.log_workflow(f"Arduino1: {response}")
 
         if "ERROR: UNKNOWN COMMAND: LOWER_HALF" in response.upper():
             if self.awaiting_lower_before_pressure:
@@ -2406,6 +2442,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.log_workflow("=" * 50)
         self.log_workflow("🤖 AUTOMATED WORKFLOW STARTED")
         self.log_workflow("=" * 50)
+
+        self.qr_scan_locked = False
+        self.auto_qr_input.config(state=tk.NORMAL)
         
         # Focus on QR input
         self.auto_qr_input.focus()
@@ -2415,6 +2454,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Stop the automated workflow"""
         self.workflow_running = False
         self.workflow_state = "IDLE"
+        self.qr_scan_locked = False
+        self.auto_qr_input.config(state=tk.NORMAL)
         
         # Send stop command to Arduino
         if self.arduino_serial:
@@ -2435,9 +2476,11 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.workflow_state = "IDLE"
         self.current_gallon_id = None
         self.workflow_running = False
+        self.qr_scan_locked = False
         self.manual_defect_fallback = False
         
         # Reset UI
+        self.auto_qr_input.config(state=tk.NORMAL)
         self.auto_qr_input.delete(0, tk.END)
         self.qr_status_label.config(text="Waiting for scan...", fg="gray")
         self.defect_status_label.config(text="")
@@ -2467,6 +2510,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def schedule_workflow_scan(self, _event=None):
         """Schedule QR processing after scanner input stabilizes."""
+        if self.qr_scan_locked:
+            return
+
         if self.workflow_state not in ("SCANNING", "IDLE"):
             return
 
@@ -2480,6 +2526,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         if self._qr_scan_after_id is not None:
             self.root.after_cancel(self._qr_scan_after_id)
             self._qr_scan_after_id = None
+
+        if self.qr_scan_locked:
+            self.auto_qr_input.delete(0, tk.END)
+            return
         
         qr_data = self.auto_qr_input.get().strip()
         if not qr_data:
@@ -2510,13 +2560,15 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         if inventory_id:
             self.current_gallon_id = inventory_id
             self.manual_defect_fallback = False
+            self.qr_scan_locked = True
             self.log_workflow(f"✓ Scanned: {inventory_id}")
             
             self.qr_status_label.config(
-                text=f"✓ Scanned: {inventory_id}",
+                text=f"✓ Scanned: {inventory_id} (locked until cycle complete)",
                 fg="#27ae60"
             )
             self.auto_qr_input.delete(0, tk.END)
+            self.auto_qr_input.config(state=tk.DISABLED)
             
             # Sequence: lower actuator to 50% -> wait for completion -> 2s delay -> pressure check
             self.workflow_state = "CHECKING_PRESSURE"
@@ -2707,9 +2759,14 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             bg="#f39c12",
             fg="white"
         )
-        
-        # Arduino automatically moves conveyor and detects position
-        # When ultrasonic detects gallon, it will trigger filling
+
+        if self.arduino_serial and self.arduino_serial.is_open:
+            if self.send_arduino_command("CONVEYOR_START"):
+                self.log_workflow("✓ Arduino1 conveyor started")
+            else:
+                self.log_workflow("⚠ Failed to start Arduino1 conveyor")
+        else:
+            self.log_workflow("⚠ Arduino1 not connected; conveyor command skipped")
     
     def workflow_start_filling(self):
         """Start filling process"""
