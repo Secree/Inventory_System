@@ -32,6 +32,7 @@ except ImportError:
 
 PRE_PRESSURE_POST_LOWER_DELAY_SEC = 2
 POST_PRESSURE_PRE_RAISE_DELAY_MS = 2000
+PRE_LOWER_DELAY_MS = 5000
 
 
 class InventoryApp:
@@ -92,6 +93,7 @@ class InventoryApp:
         self.current_gallon_id = None
         self.workflow_running = False
         self._qr_scan_after_id = None
+        self._pre_lower_after_id = None
         self.qr_scan_locked = False
         self.manual_defect_fallback = False
         self.arduino_firmware_unsupported = False
@@ -2324,7 +2326,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             if self.arduino_serial and self.arduino_serial.is_open:
                 self.log_workflow("⏳ Waiting 2s before actuator retract...")
                 self.root.after(POST_PRESSURE_PRE_RAISE_DELAY_MS, self._raise_actuator_after_pressure)
-            self.send_fill_arduino_command("DISABLE")
+            self.send_fill_arduino_command("DEFECT")
             self.root.after(0, lambda: self.enable_manual_defect_decision(
                 "❌ Leak detected. Confirm defect manually to trigger actuator."
             ))
@@ -2452,6 +2454,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def stop_automated_workflow(self):
         """Stop the automated workflow"""
+        if self._pre_lower_after_id is not None:
+            self.root.after_cancel(self._pre_lower_after_id)
+            self._pre_lower_after_id = None
+
         self.workflow_running = False
         self.workflow_state = "IDLE"
         self.qr_scan_locked = False
@@ -2460,6 +2466,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Send stop command to Arduino
         if self.arduino_serial:
             self.send_arduino_command("STOP")
+        self.send_fill_arduino_command("CLEAR")
         self.send_fill_arduino_command("DISABLE")
         
         self.start_workflow_btn.config(state=tk.NORMAL)
@@ -2469,6 +2476,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def reset_workflow(self):
         """Reset workflow to initial state"""
+        if self._pre_lower_after_id is not None:
+            self.root.after_cancel(self._pre_lower_after_id)
+            self._pre_lower_after_id = None
+
         if self._qr_scan_after_id is not None:
             self.root.after_cancel(self._qr_scan_after_id)
             self._qr_scan_after_id = None
@@ -2504,6 +2515,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Send reset to Arduino
         if self.arduino_serial:
             self.send_arduino_command("RESET")
+        self.send_fill_arduino_command("CLEAR")
         self.send_fill_arduino_command("DISABLE")
         
         self.log_workflow("🔄 Workflow reset")
@@ -2576,18 +2588,17 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.defect_btn.config(state=tk.DISABLED)
             self.no_defect_btn.config(state=tk.DISABLED)
             self.defect_status_label.config(
-                text="⏳ Running automatic pressure check...",
+                text="⏳ Preparing pressure check...",
                 fg="#e67e22"
             )
             if self.arduino_serial and self.arduino_serial.is_open:
-                self.awaiting_lower_before_pressure = True
-                self.send_arduino_command("LOWER_HALF")
-                self.log_workflow("⬇ Actuator lowering to 50%...")
                 self.pressure_status_label.config(
-                    text="⏳ Lowering actuator to 50%...",
+                    text="⏳ Waiting 5s before lowering actuator...",
                     bg="#8e44ad",
                     fg="white"
                 )
+                self.log_workflow("⏳ Waiting 5s before lowering actuator...")
+                self._pre_lower_after_id = self.root.after(PRE_LOWER_DELAY_MS, self._begin_lower_after_delay)
             else:
                 self._start_pressure_check_countdown(PRE_PRESSURE_POST_LOWER_DELAY_SEC)
         else:
@@ -2616,6 +2627,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
             reject_triggered = False
             if self.arduino_serial and self.arduino_serial.is_open:
+                self.send_fill_arduino_command("DEFECT")
                 reject_triggered = self.send_arduino_command("REJECT")
                 if reject_triggered:
                     self.log_workflow("↪ Reject actuator opened to push gallon outside conveyor")
@@ -2703,6 +2715,26 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.root.after(1000, lambda: self._start_pressure_check_countdown(seconds_left - 1))
         else:
             self.workflow_check_pressure()
+
+    def _begin_lower_after_delay(self):
+        """Lower actuator after fixed delay from successful QR scan."""
+        self._pre_lower_after_id = None
+
+        if self.workflow_state != "CHECKING_PRESSURE":
+            return
+
+        if not self.arduino_serial or not self.arduino_serial.is_open:
+            self._start_pressure_check_countdown(PRE_PRESSURE_POST_LOWER_DELAY_SEC)
+            return
+
+        self.awaiting_lower_before_pressure = True
+        self.send_arduino_command("LOWER_HALF")
+        self.log_workflow("⬇ Actuator lowering to 50%...")
+        self.pressure_status_label.config(
+            text="⏳ Lowering actuator to 50%...",
+            bg="#8e44ad",
+            fg="white"
+        )
 
     def workflow_check_pressure(self):
         """Check pressure/leak"""
