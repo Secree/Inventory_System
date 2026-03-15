@@ -9,16 +9,13 @@
  * - Stop valve if gallon is removed while filling
  *
  * Serial commands are supported for integration with the Python app:
- * ENABLE | DISABLE | DEFECT | CLEAR | STATUS
+ * ENABLE | DISABLE | STATUS
  */
 
 const int TRIG_PIN = 9;
 const int ECHO_PIN = 10;
 const int RELAY_PIN = 7;
 const int LEVEL_SENSOR_PIN = 8;
-const int GREEN_LED_PIN = 4;
-const int RED_LED_PIN = 5;
-const int BUZZER_PIN = 6;
 
 const float DETECTION_DISTANCE_CM = 7.0;
 const unsigned long FILL_START_DELAY_MS = 3000;
@@ -36,17 +33,6 @@ bool gallonDetected = false;
 unsigned long gallonDetectedAt = 0;
 unsigned long fillStartedAt = 0;
 unsigned long levelDetectedAt = 0;
-
-void setDefectLeds(bool noDefect, bool defect) {
-  digitalWrite(GREEN_LED_PIN, noDefect ? HIGH : LOW);
-  digitalWrite(RED_LED_PIN, defect ? HIGH : LOW);
-}
-
-void buzzFullAlert() {
-  tone(BUZZER_PIN, 2000, 220);
-  delay(260);
-  tone(BUZZER_PIN, 2600, 280);
-}
 
 float readDistanceCm() {
   digitalWrite(TRIG_PIN, LOW);
@@ -89,7 +75,6 @@ void handleCommand(String cmd) {
     fillStartedAt = 0;
     levelDetectedAt = 0;
     setValve(false);
-    setDefectLeds(true, false);
     Serial.println("FILL:ENABLED");
   } else if (cmd == "DISABLE") {
     fillEnabled = false;
@@ -100,20 +85,6 @@ void handleCommand(String cmd) {
     levelDetectedAt = 0;
     setValve(false);
     Serial.println("FILL:DISABLED");
-  } else if (cmd == "DEFECT") {
-    fillEnabled = false;
-    isFilling = false;
-    gallonDetected = false;
-    gallonDetectedAt = 0;
-    fillStartedAt = 0;
-    levelDetectedAt = 0;
-    setValve(false);
-    setDefectLeds(false, true);
-    Serial.println("DEFECT:DETECTED");
-  } else if (cmd == "CLEAR") {
-    setDefectLeds(false, false);
-    noTone(BUZZER_PIN);
-    Serial.println("INDICATORS:CLEARED");
   } else if (cmd == "STATUS") {
     Serial.print("FILL:STATE=");
     Serial.println(fillEnabled ? "ENABLED" : "DISABLED");
@@ -133,19 +104,14 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LEVEL_SENSOR_PIN, INPUT_PULLUP);
-  pinMode(GREEN_LED_PIN, OUTPUT);
-  pinMode(RED_LED_PIN, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
 
   setValve(false);
-  setDefectLeds(false, false);
-  noTone(BUZZER_PIN);
 
   Serial.begin(9600);
   while (!Serial) { ; }
 
   Serial.println("READY");
-  Serial.println("Commands: ENABLE | DISABLE | DEFECT | CLEAR | STATUS");
+  Serial.println("Commands: ENABLE | DISABLE | STATUS");
   Serial.print("DETECTION_DISTANCE_CM:");
   Serial.println(DETECTION_DISTANCE_CM, 1);
   Serial.print("FILL_START_DELAY_MS:");
@@ -202,7 +168,6 @@ void loop() {
       bool minFillElapsed = (millis() - fillStartedAt) >= MIN_FILL_TIME_MS;
       bool levelStable = (millis() - levelDetectedAt) >= LEVEL_CONFIRM_MS;
       if (minFillElapsed && levelStable) {
-        buzzFullAlert();
         stopFilling("FILLING:COMPLETE");
         fillEnabled = false;
         Serial.println("FILL:DISABLED");

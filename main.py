@@ -2326,7 +2326,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             if self.arduino_serial and self.arduino_serial.is_open:
                 self.log_workflow("⏳ Waiting 2s before actuator retract...")
                 self.root.after(POST_PRESSURE_PRE_RAISE_DELAY_MS, self._raise_actuator_after_pressure)
-            self.send_fill_arduino_command("DEFECT")
+            self.send_fill_arduino_command("DISABLE")
             self.root.after(0, lambda: self.enable_manual_defect_decision(
                 "❌ Leak detected. Confirm defect manually to trigger actuator."
             ))
@@ -2466,7 +2466,6 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Send stop command to Arduino
         if self.arduino_serial:
             self.send_arduino_command("STOP")
-        self.send_fill_arduino_command("CLEAR")
         self.send_fill_arduino_command("DISABLE")
         
         self.start_workflow_btn.config(state=tk.NORMAL)
@@ -2515,7 +2514,6 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Send reset to Arduino
         if self.arduino_serial:
             self.send_arduino_command("RESET")
-        self.send_fill_arduino_command("CLEAR")
         self.send_fill_arduino_command("DISABLE")
         
         self.log_workflow("🔄 Workflow reset")
@@ -2627,7 +2625,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
             reject_triggered = False
             if self.arduino_serial and self.arduino_serial.is_open:
-                self.send_fill_arduino_command("DEFECT")
+                self.send_fill_arduino_command("DISABLE")
                 reject_triggered = self.send_arduino_command("REJECT")
                 if reject_triggered:
                     self.log_workflow("↪ Reject actuator opened to push gallon outside conveyor")
@@ -2811,14 +2809,42 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             # Update refill count
             self.db.increment_refills(self.current_gallon_id)
             self.log_workflow(f"✓ Gallon {self.current_gallon_id} refilled successfully!")
-            
-            messagebox.showinfo(
-                "Success",
-                f"Gallon {self.current_gallon_id} refilled!\n\nReady for next gallon."
-            )
-        
-        # Reset for next gallon
-        self.reset_workflow()
+
+        # Auto-ready for next scan (no popup, no full reset)
+        self.current_gallon_id = None
+        self.manual_defect_fallback = False
+        self.awaiting_lower_before_pressure = False
+        self.qr_scan_locked = False
+
+        if self._pre_lower_after_id is not None:
+            self.root.after_cancel(self._pre_lower_after_id)
+            self._pre_lower_after_id = None
+
+        self.workflow_state = "SCANNING" if self.workflow_running else "IDLE"
+        self.auto_qr_input.config(state=tk.NORMAL)
+        self.auto_qr_input.delete(0, tk.END)
+        self.auto_qr_input.focus()
+        self.qr_status_label.config(text="👉 Scan QR code now", fg="#e67e22")
+        self.defect_status_label.config(text="")
+        self.pressure_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
+        self.pressure_value_label.config(text="Pressure: --")
+        self.filling_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
+        self.ultrasonic_distance_label.config(text="Distance: -- cm")
+        self.defect_btn.config(state=tk.DISABLED)
+        self.no_defect_btn.config(state=tk.DISABLED)
+        self.conveyor_status.config(text="●", fg="gray")
+        self.position_status.config(text="●", fg="gray")
+        self.valve_status.config(text="●", fg="gray")
+        self.water_level_status.config(text="●", fg="gray")
+
+        if self.workflow_running:
+            self.start_workflow_btn.config(state=tk.DISABLED)
+            self.stop_workflow_btn.config(state=tk.NORMAL)
+        else:
+            self.start_workflow_btn.config(state=tk.NORMAL)
+            self.stop_workflow_btn.config(state=tk.DISABLED)
+
+        self.log_workflow("↻ Ready for next gallon scan")
         
         # Refresh inventory
         self.refresh_inventory_list()
