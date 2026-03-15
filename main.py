@@ -2639,14 +2639,6 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 fg="#e74c3c"
             )
             
-            messagebox.showwarning(
-                "Defect Detected",
-                f"Gallon {self.current_gallon_id} marked as defective.\n"
-                + ("Reject actuator triggered to push gallon outside conveyor."
-                   if reject_triggered else
-                   "Please remove from line manually.")
-            )
-            
             # Reset for next gallon
             self.reset_workflow()
         else:

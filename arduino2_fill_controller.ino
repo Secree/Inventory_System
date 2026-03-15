@@ -16,6 +16,7 @@ const int TRIG_PIN = 9;
 const int ECHO_PIN = 10;
 const int RELAY_PIN = 7;
 const int LEVEL_SENSOR_PIN = 8;
+const int BUZZER_PIN = 4;
 
 const float DETECTION_DISTANCE_CM = 7.0;
 const unsigned long FILL_START_DELAY_MS = 3000;
@@ -33,6 +34,14 @@ bool gallonDetected = false;
 unsigned long gallonDetectedAt = 0;
 unsigned long fillStartedAt = 0;
 unsigned long levelDetectedAt = 0;
+
+void buzzFullAlert() {
+  for (int i = 0; i < 3; i++) {
+    tone(BUZZER_PIN, 2000, 1000);
+    delay(1100);
+  }
+  noTone(BUZZER_PIN);
+}
 
 float readDistanceCm() {
   digitalWrite(TRIG_PIN, LOW);
@@ -104,8 +113,10 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LEVEL_SENSOR_PIN, INPUT_PULLUP);
+  pinMode(BUZZER_PIN, OUTPUT);
 
   setValve(false);
+  noTone(BUZZER_PIN);
 
   Serial.begin(9600);
   while (!Serial) { ; }
@@ -168,6 +179,7 @@ void loop() {
       bool minFillElapsed = (millis() - fillStartedAt) >= MIN_FILL_TIME_MS;
       bool levelStable = (millis() - levelDetectedAt) >= LEVEL_CONFIRM_MS;
       if (minFillElapsed && levelStable) {
+        buzzFullAlert();
         stopFilling("FILLING:COMPLETE");
         fillEnabled = false;
         Serial.println("FILL:DISABLED");
