@@ -122,7 +122,7 @@ const int AIR_PUMP_OFF   = HIGH;
 // SYSTEM PARAMETERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-const float NO_LEAK_PRESSURE = 40.0;      // Required relative pressure rise above baseline for no-leak
+const float NO_LEAK_PRESSURE = 36.0;      // Required relative pressure rise above baseline for no-leak
 const unsigned long PRESSURE_TEST_TIME_MS = 15000;  // Wait 15 seconds before leak decision
 const unsigned long PUMP_ON_TIME_MS = 3000;         // Keep pump ON for first 3 seconds of pressure test
 const int CONSISTENT_HIGH_READS_REQUIRED = 3;        // Consecutive reads above threshold needed for no-leak
