@@ -2141,6 +2141,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
         noisy_prefixes = (
             "PRESSURE:",
+            "PRESSURE_LOG:",
             "DISTANCE:",
             "LEVEL_SENSOR_RAW:",
             "WATER_DETECTED:",
@@ -2270,6 +2271,26 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Process responses from Arduino"""
         if self._should_log_arduino_response(response):
             self.log_workflow(f"Arduino1: {response}")
+
+        # Streamed once-per-second pressure telemetry from Arduino.
+        # Write it as PRESSURE: in workflow log so operators can track live readings.
+        if "PRESSURE_LOG:" in response:
+            try:
+                match = re.search(r'[-+]?\d*\.?\d+', response)
+                if not match:
+                    raise ValueError("No pressure number found")
+                pressure = float(match.group(0))
+                self._last_pressure_value = pressure
+                threshold = 36.0
+                mark = "✓" if pressure >= threshold else "…"
+                self.log_workflow(f"PRESSURE: {pressure:.1f} (need >= {threshold:.0f}) {mark}")
+                self.root.after(0, lambda p=pressure: self.pressure_value_label.config(
+                    text=f"Pressure: {p:.1f}  (need >= {threshold:.0f}) {mark}"))
+                if _IOT_AVAILABLE:
+                    web_server.update_sensor_state(pressure_psi=pressure, workflow_state=self.workflow_state)
+            except Exception:
+                pass
+            return
 
         if "ERROR: UNKNOWN COMMAND: LOWER_HALF" in response.upper():
             if self.awaiting_lower_before_pressure:
