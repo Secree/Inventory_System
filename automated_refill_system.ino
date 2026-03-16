@@ -166,6 +166,7 @@ SystemState currentState = IDLE;
 bool systemRunning = false;
 unsigned long stateStartTime = 0;
 unsigned long lastPressureCheck = 0;
+unsigned long lastPressureLog = 0;  // Tracks 1-second pressure logging interval
 int gallonsProcessed = 0;
 float pressureBaseline = -1.0;
 float lastPressure = 0.0;
@@ -251,6 +252,14 @@ void loop() {
   // Run state machine if system is active
   if (systemRunning) {
     runStateMachine();
+
+    // Log air pressure every second throughout the workflow
+    if (millis() - lastPressureLog >= 1000) {
+      lastPressureLog = millis();
+      float wfPressure = readPressure();
+      Serial.print("PRESSURE_LOG:");
+      Serial.println(wfPressure, 1);
+    }
   }
   
   delay(50);  // Small delay to prevent excessive CPU usage

@@ -102,6 +102,9 @@ class InventoryApp:
         self.arduino_firmware_unsupported = False
         self.arduino_firmware_warned = False
         self.awaiting_lower_before_pressure = False
+        self._auto_defect_after_id = None   # pending auto-select countdown timer
+        self._last_pressure_value = 0.0     # last relative pressure reading from Arduino
+        self._last_leak_verdict = None      # 'OK', 'DETECTED', or None
         
         # Arduino connection is manual via the Connect button to avoid
         # triggering board reset/self-test routines at app startup.
@@ -2323,6 +2326,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 if not match:
                     raise ValueError("No pressure number found")
                 pressure = float(match.group(0))
+                self._last_pressure_value = pressure
                 self.root.after(0, lambda: self.pressure_value_label.config(text=f"Pressure: {pressure:.1f}"))
                 if _IOT_AVAILABLE:
                     web_server.update_sensor_state(pressure_psi=pressure, workflow_state=self.workflow_state)
@@ -2339,6 +2343,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 pass
         
         elif "LEAK:DETECTED" in response:
+            self._last_leak_verdict = 'DETECTED'
             if _IOT_AVAILABLE:
                 web_server.update_sensor_state(leak_detected=True, workflow_state="CHECKING_PRESSURE")
             self.root.after(0, lambda: self.pressure_status_label.config(
@@ -2355,6 +2360,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             ))
         
         elif "LEAK:OK" in response:
+            self._last_leak_verdict = 'OK'
             if _IOT_AVAILABLE:
                 web_server.update_sensor_state(leak_detected=False, workflow_state=self.workflow_state)
             self.root.after(0, lambda: self.pressure_status_label.config(
@@ -2509,6 +2515,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.root.after_cancel(self._pre_lower_after_id)
             self._pre_lower_after_id = None
 
+        if self._auto_defect_after_id is not None:
+            self.root.after_cancel(self._auto_defect_after_id)
+            self._auto_defect_after_id = None
+
         self.workflow_running = False
         self.workflow_state = "IDLE"
         self.qr_scan_locked = False
@@ -2536,6 +2546,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.root.after_cancel(self._qr_scan_after_id)
             self._qr_scan_after_id = None
 
+        if self._auto_defect_after_id is not None:
+            self.root.after_cancel(self._auto_defect_after_id)
+            self._auto_defect_after_id = None
+
         self.workflow_state = "IDLE"
         self.current_gallon_id = None
         self.workflow_running = False
@@ -2543,6 +2557,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.manual_defect_fallback = False
         self.awaiting_reject_completion = False
         self.auto_feed_conveyor_running = False
+        self._last_leak_verdict = None
         
         # Reset UI
         self.auto_qr_input.config(state=tk.NORMAL)
@@ -2673,6 +2688,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Handle manual defect check"""
         if self.workflow_state != "CHECKING_DEFECT":
             return
+        # Cancel any pending auto-select countdown (user clicked manually)
+        if self._auto_defect_after_id is not None:
+            self.root.after_cancel(self._auto_defect_after_id)
+            self._auto_defect_after_id = None
         
         self.defect_btn.config(state=tk.DISABLED)
         self.no_defect_btn.config(state=tk.DISABLED)
@@ -2761,7 +2780,46 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         )
         self.defect_btn.config(state=tk.NORMAL)
         self.no_defect_btn.config(state=tk.NORMAL)
+        # Start 3-second countdown — system auto-selects based on threshold if user doesn't click
+        self._auto_defect_countdown(3)
     
+    def _auto_defect_countdown(self, seconds_left):
+        """Count down and then auto-select defect/no-defect based on pressure threshold."""
+        if self.workflow_state != "CHECKING_DEFECT":
+            return
+        if seconds_left > 0:
+            self.defect_status_label.config(
+                text=f"⏱ Auto-selecting in {seconds_left}s (click to override)...",
+                fg="#e67e22"
+            )
+            self._auto_defect_after_id = self.root.after(
+                1000, lambda: self._auto_defect_countdown(seconds_left - 1)
+            )
+        else:
+            self._auto_defect_after_id = None
+            self._auto_decide_defect()
+
+    def _auto_decide_defect(self):
+        """Auto-select defect or no-defect based on last pressure verdict / threshold."""
+        if self.workflow_state != "CHECKING_DEFECT":
+            return
+        NO_LEAK_PRESSURE = 36.0  # must match Arduino NO_LEAK_PRESSURE constant
+        verdict = self._last_leak_verdict
+        if verdict == 'DETECTED':
+            has_defect = True
+            reason = "LEAK:DETECTED received from Arduino"
+        elif verdict == 'OK':
+            has_defect = False
+            reason = "LEAK:OK received from Arduino"
+        elif self._last_pressure_value >= NO_LEAK_PRESSURE:
+            has_defect = False
+            reason = f"pressure {self._last_pressure_value:.1f} >= threshold {NO_LEAK_PRESSURE}"
+        else:
+            has_defect = True
+            reason = f"pressure {self._last_pressure_value:.1f} < threshold {NO_LEAK_PRESSURE}"
+        self.log_workflow(f"⚙ Auto-decision ({reason}): {'DEFECT' if has_defect else 'NO DEFECT'}")
+        self.workflow_defect_check(has_defect=has_defect)
+
     def _start_pressure_check_countdown(self, seconds_left):
         """Countdown after lowering actuator before starting pressure check."""
         if self.workflow_state != "CHECKING_PRESSURE" or self.awaiting_lower_before_pressure:
@@ -2869,6 +2927,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Complete workflow cycle"""
         self.send_fill_arduino_command("READY")
         self.auto_feed_conveyor_running = False
+        self._last_leak_verdict = None
 
         if refilled and self.current_gallon_id:
             # Update refill count
