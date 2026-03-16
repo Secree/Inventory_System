@@ -304,8 +304,10 @@ void runStateMachine() {
           highPressureStreak = 0;
         }
         
-        Serial.print("PRESSURE:");
-        Serial.println(pressure, 1);
+          Serial.print("PRESSURE:");
+          Serial.println(pressure, 1);
+          Serial.print("WORKLOG PRESSURE:");
+          Serial.println(pressure, 1);
 
         // Wait complete test duration before making pass/fail decision.
         if (elapsed >= PRESSURE_TEST_TIME_MS) {
