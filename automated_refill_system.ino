@@ -122,7 +122,7 @@ const int AIR_PUMP_OFF   = HIGH;
 // SYSTEM PARAMETERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-const float NO_LEAK_PRESSURE = 13.0;      // Required relative pressure rise above baseline for no-leak
+const float NO_LEAK_PRESSURE = 15.0;      // Required relative pressure rise above baseline for no-leak
 const unsigned long PRESSURE_TEST_TIME_MS = 15000;  // Wait 15 seconds before leak decision
 const unsigned long PUMP_ON_TIME_MS = 15000;        // Keep pump ON for first 10 seconds of pressure test
 const int CONSISTENT_HIGH_READS_REQUIRED = 3;        // Consecutive reads above threshold needed for no-leak
@@ -138,8 +138,8 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
-const int ACTUATOR_EXTEND_TIME = 5000;   // ms - time for primary actuator to fully extend
-const int ACTUATOR_RETRACT_TIME = 5000;  // ms - time for primary actuator to fully retract
+const int ACTUATOR_EXTEND_TIME = 7000;   // ms - time for primary actuator to fully extend
+const int ACTUATOR_RETRACT_TIME = 7000;  // ms - time for primary actuator to fully retract
 const int ACTUATOR_HALF_EXTEND_TIME = ACTUATOR_EXTEND_TIME / 2;  // ms - 50% extension stroke
 const int REJECT_PUSH_TIME = 5000;        // ms - reject pusher extend time
 const int REJECT_RETRACT_TIME = 5000;     // ms - reject pusher retract time
@@ -256,7 +256,7 @@ void loop() {
     runStateMachine();
 
     // Log air pressure every second throughout the workflow.
-    // Sends relative pressure when baseline is set (same 0-based scale as NO_LEAK_PRESSURE = 36),
+    // Sends relative pressure when baseline is set (same 0-based scale as NO_LEAK_PRESSURE = 15),
     // or absolute pressure before any test baseline is established.
     if (millis() - lastPressureLog >= 1000) {
       lastPressureLog = millis();

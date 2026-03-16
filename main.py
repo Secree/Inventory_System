@@ -639,6 +639,13 @@ class InventoryApp:
             bg="#f0f4f8"
         )
         self.step2_intro_label.grid(row=0, column=0, columnspan=2, pady=(0, 8), sticky="ew")
+        self._set_marquee_label(
+            key="step2_intro",
+            label=self.step2_intro_label,
+            text="Pressure checks automatically. If unavailable, decide manually:",
+            bg="#f0f4f8",
+            fg="black"
+        )
 
         self.defect_btn = tk.Button(
             step2, text="❌  DEFECT FOUND",
