@@ -226,7 +226,21 @@ Ultrasonic Sensor HC-SR04 → Arduino:
 Relay Module (for Solenoid Valve) → Arduino:
   VCC  ---> Arduino 5V
   GND  ---> Arduino GND
-  IN   ---> Arduino Pin A5 (Control Signal)
+  IN   ---> Arduino Pin 7 (Control Signal)
+
+Level Sensor (XKC-Y25) → Arduino:
+  VCC  ---> Arduino 5V
+  GND  ---> Arduino GND
+  OUT  ---> Arduino Pin 8
+
+Buzzer → Arduino:
+  +    ---> Arduino Pin 4
+  -    ---> Arduino GND
+
+Busy/Ready LEDs → Arduino:
+  RED LED +    ---> Arduino Pin 11
+  GREEN LED +  ---> Arduino Pin 12
+  Both LED -   ---> Arduino GND
   
 Relay Module → Solenoid Valve:
   COM  ---> 12V Power Supply +
@@ -253,7 +267,11 @@ Upload: `arduino2_fill_controller.ino`
 **For Solenoid Valve:**
 - Arduino Uno/Nano/Mega
 - HC-SR04 Ultrasonic Sensor
+- XKC-Y25 level sensor
 - 5V Relay Module
+- 2 LEDs (red and green)
+- 2 current-limiting resistors
+- 5V buzzer
 - 12V Solenoid Valve
 - 12V Power Supply
 - USB cable

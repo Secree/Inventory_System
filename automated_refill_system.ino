@@ -113,8 +113,10 @@ const int REJECT_ACTUATOR_IN1   = 7;
 const int REJECT_ACTUATOR_IN2   = 8;
 const int REJECT_ACTUATOR_SPEED = 200;
 
-// Status LEDs (optional)
-const int LED_STATUS = 13;    // System running indicator
+// Air pump relay (relay module on pin 13)
+const int AIR_PUMP_RELAY = 13;
+const int AIR_PUMP_ON    = LOW;  
+const int AIR_PUMP_OFF   = HIGH;   
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SYSTEM PARAMETERS
@@ -181,6 +183,8 @@ void stopPrimaryActuator();
 void extendRejectActuator();
 void retractRejectActuator();
 void stopRejectActuator();
+void pumpOn();
+void pumpOff();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SETUP
@@ -215,14 +219,14 @@ void setup() {
   pinMode(REJECT_ACTUATOR_ENA, OUTPUT);
   pinMode(REJECT_ACTUATOR_IN1, OUTPUT);
   pinMode(REJECT_ACTUATOR_IN2, OUTPUT);
-  pinMode(LED_STATUS, OUTPUT);
+  pinMode(AIR_PUMP_RELAY, OUTPUT);
   
   // Initialize all outputs to safe state
   stopConveyor();
   closeValve();
   retractActuator();
   stopRejectActuator();
-  digitalWrite(LED_STATUS, LOW);
+  pumpOff();
 
   // Wait for serial
   while (!Serial) { ; }
@@ -395,7 +399,6 @@ void runStateMachine() {
       retractActuator();
       stopPrimaryActuator();
       stopRejectActuator();
-      digitalWrite(LED_STATUS, LOW);
       systemRunning = false;
       Serial.println("SYSTEM STOPPED: Leak detected");
       Serial.println("Fix leak and send RESET command");
@@ -417,7 +420,24 @@ void runStateMachine() {
   }
 }
 
+void pumpOn() {
+  digitalWrite(AIR_PUMP_RELAY, AIR_PUMP_ON);
+}
+
+void pumpOff() {
+  digitalWrite(AIR_PUMP_RELAY, AIR_PUMP_OFF);
+}
+
 void changeState(SystemState newState) {
+  // Pump runs only during pressure check.
+  if (newState == CHECKING_PRESSURE) {
+    pumpOn();
+    Serial.println("PUMP:ON");
+  } else if (currentState == CHECKING_PRESSURE) {
+    pumpOff();
+    Serial.println("PUMP:OFF");
+  }
+
   currentState = newState;
   stateStartTime = millis();
 
@@ -647,7 +667,6 @@ void handleSerialCommands() {
     if (command == "START") {
       if (!systemRunning) {
         systemRunning = true;
-        digitalWrite(LED_STATUS, HIGH);
         gallonsProcessed = 0;
         pressureBaseline = -1.0;
         changeState(CHECKING_PRESSURE);
@@ -662,7 +681,7 @@ void handleSerialCommands() {
       closeValve();
       raisePrimaryActuator(false);
       stopRejectActuator();
-      digitalWrite(LED_STATUS, LOW);
+      pumpOff();
       changeState(IDLE);
       Serial.println("SYSTEM:STOPPED");
     }
@@ -677,6 +696,8 @@ void handleSerialCommands() {
       Serial.println("PRESSURE:TEST_START");
       Serial.print("PRESSURE:BASELINE ");
       Serial.println(0.0, 1);
+      pumpOn();
+      Serial.println("PUMP:ON");
 
       while (millis() - testStart < PRESSURE_TEST_TIME_MS) {
         latestAbs = readPressure();
@@ -693,6 +714,9 @@ void handleSerialCommands() {
         Serial.println(latestRel, 1);
         delay(PRESSURE_CHECK_INTERVAL);
       }
+
+      pumpOff();
+      Serial.println("PUMP:OFF");
 
       float latestRel = toRelativePressure(latestAbs, pressureBaseline);
       float requiredRise = requiredRiseForNoLeak(pressureBaseline);
@@ -731,7 +755,7 @@ void handleSerialCommands() {
       closeValve();
       raisePrimaryActuator(false);
       stopRejectActuator();
-      digitalWrite(LED_STATUS, LOW);
+      pumpOff();
       changeState(IDLE);
       gallonsProcessed = 0;
       pressureBaseline = -1.0;

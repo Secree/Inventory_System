@@ -89,7 +89,7 @@ class InventoryApp:
         self.fill_arduino_serial = None
         self.fill_arduino_port = None
         self.fill_arduino_preferred_port = "COM7"
-        self.workflow_state = "IDLE"  # IDLE, SCANNING, CHECKING_DEFECT, CHECKING_PRESSURE, MOVING, FILLING, COMPLETE
+        self.workflow_state = "IDLE"  # IDLE, SCANNING, CHECKING_DEFECT, CHECKING_PRESSURE, MOVING, FILLING, WAITING_PICKUP, COMPLETE
         self.current_gallon_id = None
         self.workflow_running = False
         self._qr_scan_after_id = None
@@ -97,6 +97,8 @@ class InventoryApp:
         self._fill_serial_buffer = ""
         self.qr_scan_locked = False
         self.manual_defect_fallback = False
+        self.awaiting_reject_completion = False
+        self.auto_feed_conveyor_running = False
         self.arduino_firmware_unsupported = False
         self.arduino_firmware_warned = False
         self.awaiting_lower_before_pressure = False
@@ -2201,16 +2203,27 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
         elif "FILLING:COMPLETE" in response:
             if _IOT_AVAILABLE:
-                web_server.update_sensor_state(valve_open=False, workflow_state="COMPLETE")
+                web_server.update_sensor_state(valve_open=False, workflow_state="WAITING_PICKUP")
             self.root.after(0, lambda: self.valve_status.config(text="●", fg="#95a5a6"))
             self.root.after(0, lambda: self.water_level_status.config(text="●", fg="#2ecc71"))
             self.root.after(0, lambda: self.filling_status_label.config(
-                text="✓ Filling Complete!",
+                text="✓ Filling complete. Remove gallon to finish.",
+                bg="#27ae60",
+                fg="white"
+            ))
+            self.workflow_state = "WAITING_PICKUP"
+
+        elif "GALLON:REMOVED_READY" in response:
+            if _IOT_AVAILABLE:
+                web_server.update_sensor_state(valve_open=False, workflow_state="COMPLETE")
+            self.root.after(0, lambda: self.position_status.config(text="●", fg="gray"))
+            self.root.after(0, lambda: self.filling_status_label.config(
+                text="✓ Gallon removed. System ready.",
                 bg="#27ae60",
                 fg="white"
             ))
             self.workflow_state = "COMPLETE"
-            self.root.after(0, self.workflow_complete)
+            self.root.after(0, lambda: self.workflow_complete(refilled=True))
 
         elif "FILLING:STOPPED_NO_GALLON" in response:
             self.root.after(0, lambda: self.valve_status.config(text="●", fg="#95a5a6"))
@@ -2414,12 +2427,34 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             if _IOT_AVAILABLE:
                 web_server.update_sensor_state(valve_open=False, workflow_state="CHECKING_DEFECT")
             self.root.after(0, lambda: self.valve_status.config(text="●", fg="#95a5a6"))
+            if self.awaiting_reject_completion:
+                self.awaiting_reject_completion = False
+                self.send_fill_arduino_command("READY")
+                self.root.after(0, lambda: self.workflow_complete(refilled=False))
+
+        elif "PUMP:ON" in response:
+            self.root.after(0, lambda: self.pressure_status_label.config(
+                text="⏳ Air pump running — pressurising...",
+                bg="#8e44ad",
+                fg="white"
+            ))
+
+        elif "PUMP:OFF" in response:
+            self.root.after(0, lambda: self.pressure_status_label.config(
+                text="⏳ Air pump stopped — reading pressure...",
+                bg="#f39c12",
+                fg="white"
+            ))
 
     def _raise_actuator_after_pressure(self):
         """Retract primary actuator after pressure result delay."""
         if self.arduino_serial and self.arduino_serial.is_open:
             if self.send_arduino_command("RAISE"):
                 self.log_workflow("⬆ Actuator raised after pressure result")
+            self.send_arduino_command("CONVEYOR_STOP")
+            self.auto_feed_conveyor_running = False
+            self.root.after(0, lambda: self.conveyor_status.config(text="●", fg="#95a5a6"))
+            self.log_workflow("✓ Conveyor kept OFF after actuator lift")
 
     def log_workflow(self, message):
         """Add message to workflow log"""
@@ -2455,6 +2490,12 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.log_workflow("🤖 AUTOMATED WORKFLOW STARTED")
         self.log_workflow("=" * 50)
 
+        if self.arduino_serial and self.arduino_serial.is_open:
+            self.send_arduino_command("CONVEYOR_STOP")
+            self.auto_feed_conveyor_running = False
+            self.conveyor_status.config(text="●", fg="#95a5a6")
+            self.log_workflow("✓ Conveyor forced OFF at workflow start")
+
         self.qr_scan_locked = False
         self.auto_qr_input.config(state=tk.NORMAL)
         
@@ -2472,11 +2513,13 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.workflow_state = "IDLE"
         self.qr_scan_locked = False
         self.auto_qr_input.config(state=tk.NORMAL)
+        self.awaiting_reject_completion = False
+        self.auto_feed_conveyor_running = False
         
         # Send stop command to Arduino
         if self.arduino_serial:
             self.send_arduino_command("STOP")
-        self.send_fill_arduino_command("DISABLE")
+        self.send_fill_arduino_command("READY")
         
         self.start_workflow_btn.config(state=tk.NORMAL)
         self.stop_workflow_btn.config(state=tk.DISABLED)
@@ -2498,6 +2541,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.workflow_running = False
         self.qr_scan_locked = False
         self.manual_defect_fallback = False
+        self.awaiting_reject_completion = False
+        self.auto_feed_conveyor_running = False
         
         # Reset UI
         self.auto_qr_input.config(state=tk.NORMAL)
@@ -2524,7 +2569,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         # Send reset to Arduino
         if self.arduino_serial:
             self.send_arduino_command("RESET")
-        self.send_fill_arduino_command("DISABLE")
+        self.send_fill_arduino_command("READY")
         
         self.log_workflow("🔄 Workflow reset")
     
@@ -2555,6 +2600,11 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         if not qr_data:
             return
 
+        if self.auto_feed_conveyor_running and self.arduino_serial and self.arduino_serial.is_open:
+            if self.send_arduino_command("CONVEYOR_STOP"):
+                self.log_workflow("✓ Conveyor stopped after QR read")
+            self.auto_feed_conveyor_running = False
+
         # Allow scanner input to kick off workflow automatically.
         if self.workflow_state == "IDLE":
             self.workflow_running = True
@@ -2580,8 +2630,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         if inventory_id:
             self.current_gallon_id = inventory_id
             self.manual_defect_fallback = False
+            self.awaiting_reject_completion = False
             self.qr_scan_locked = True
             self.log_workflow(f"✓ Scanned: {inventory_id}")
+            self.send_fill_arduino_command("BUSY")
             
             self.qr_status_label.config(
                 text=f"✓ Scanned: {inventory_id} (locked until cycle complete)",
@@ -2638,6 +2690,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 self.send_fill_arduino_command("DISABLE")
                 reject_triggered = self.send_arduino_command("REJECT")
                 if reject_triggered:
+                    self.awaiting_reject_completion = True
                     self.log_workflow("↪ Reject actuator opened to push gallon outside conveyor")
                 else:
                     self.log_workflow("⚠ Failed to send REJECT command to Arduino")
@@ -2648,9 +2701,16 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 text="❌ Defect reported. Gallon rejected.",
                 fg="#e74c3c"
             )
-            
-            # Reset for next gallon
-            self.reset_workflow()
+
+            if reject_triggered:
+                self.filling_status_label.config(
+                    text="⏳ Rejecting defective gallon...",
+                    bg="#e74c3c",
+                    fg="white"
+                )
+            else:
+                self.send_fill_arduino_command("READY")
+                self.workflow_complete(refilled=False)
         else:
             # Manual fallback decision when automatic pressure check is unavailable
             if self.manual_defect_fallback:
@@ -2805,16 +2865,22 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.log_workflow("Starting fill process...")
         # Arduino automatically opens valve and monitors water level
     
-    def workflow_complete(self):
+    def workflow_complete(self, refilled=True):
         """Complete workflow cycle"""
-        if self.current_gallon_id:
+        self.send_fill_arduino_command("READY")
+        self.auto_feed_conveyor_running = False
+
+        if refilled and self.current_gallon_id:
             # Update refill count
             self.db.increment_refills(self.current_gallon_id)
             self.log_workflow(f"✓ Gallon {self.current_gallon_id} refilled successfully!")
+        elif self.current_gallon_id:
+            self.log_workflow(f"↻ Cycle finished for {self.current_gallon_id}")
 
         # Auto-ready for next scan (no popup, no full reset)
         self.current_gallon_id = None
         self.manual_defect_fallback = False
+        self.awaiting_reject_completion = False
         self.awaiting_lower_before_pressure = False
         self.qr_scan_locked = False
 

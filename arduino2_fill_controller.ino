@@ -17,11 +17,14 @@ const int ECHO_PIN = 10;
 const int RELAY_PIN = 7;
 const int LEVEL_SENSOR_PIN = 8;
 const int BUZZER_PIN = 4;
+const int RED_LED_PIN = 11;
+const int GREEN_LED_PIN = 12;
 
 const float DETECTION_DISTANCE_CM = 7.0;
 const unsigned long FILL_START_DELAY_MS = 3000;
 const unsigned long MIN_FILL_TIME_MS = 1500;
 const unsigned long LEVEL_CONFIRM_MS = 400;
+const unsigned long REMOVAL_CONFIRM_MS = 500;
 const unsigned long LOOP_DELAY_MS = 120;
 
 const int RELAY_ON = LOW;
@@ -31,9 +34,28 @@ const int LEVEL_WATER_DETECTED_STATE = HIGH; // <-- flipped from LOW to HIGH
 bool fillEnabled = false;
 bool isFilling = false;
 bool gallonDetected = false;
+bool cycleBusy = false;
+bool waitingForPickup = false;
 unsigned long gallonDetectedAt = 0;
 unsigned long fillStartedAt = 0;
 unsigned long levelDetectedAt = 0;
+unsigned long gallonRemovedAt = 0;
+
+void updateStatusLeds() {
+  const bool busy = cycleBusy || fillEnabled || isFilling || waitingForPickup;
+  digitalWrite(RED_LED_PIN, busy ? HIGH : LOW);
+  digitalWrite(GREEN_LED_PIN, busy ? LOW : HIGH);
+}
+
+void resetFillTracking() {
+  isFilling = false;
+  gallonDetected = false;
+  waitingForPickup = false;
+  gallonDetectedAt = 0;
+  fillStartedAt = 0;
+  levelDetectedAt = 0;
+  gallonRemovedAt = 0;
+}
 
 void buzzFullAlert() {
   for (int i = 0; i < 3; i++) {
@@ -64,41 +86,69 @@ void setValve(bool open) {
 
 void stopFilling(const char* reason) {
   setValve(false);
+  resetFillTracking();
+  updateStatusLeds();
+  Serial.println(reason);
+}
+
+void markCycleBusy() {
+  cycleBusy = true;
+  updateStatusLeds();
+}
+
+void markCycleReady() {
+  fillEnabled = false;
+  cycleBusy = false;
+  setValve(false);
+  resetFillTracking();
+  updateStatusLeds();
+}
+
+void completeFillingAndWaitForPickup() {
+  setValve(false);
+  fillEnabled = false;
   isFilling = false;
   gallonDetected = false;
   gallonDetectedAt = 0;
   fillStartedAt = 0;
   levelDetectedAt = 0;
-  Serial.println(reason);
+  waitingForPickup = true;
+  gallonRemovedAt = 0;
+  markCycleBusy();
+  Serial.println("FILLING:COMPLETE");
 }
 
 void handleCommand(String cmd) {
   cmd.trim();
   cmd.toUpperCase();
 
-  if (cmd == "ENABLE") {
+  if (cmd == "BUSY") {
+    markCycleBusy();
+    Serial.println("SYSTEM:BUSY");
+  } else if (cmd == "READY") {
+    markCycleReady();
+    Serial.println("SYSTEM:READY");
+  } else if (cmd == "ENABLE") {
     fillEnabled = true;
-    isFilling = false;
-    gallonDetected = false;
-    gallonDetectedAt = 0;
-    fillStartedAt = 0;
-    levelDetectedAt = 0;
+    resetFillTracking();
     setValve(false);
+    markCycleBusy();
     Serial.println("FILL:ENABLED");
   } else if (cmd == "DISABLE") {
     fillEnabled = false;
-    isFilling = false;
-    gallonDetected = false;
-    gallonDetectedAt = 0;
-    fillStartedAt = 0;
-    levelDetectedAt = 0;
+    resetFillTracking();
     setValve(false);
+    updateStatusLeds();
     Serial.println("FILL:DISABLED");
   } else if (cmd == "STATUS") {
     Serial.print("FILL:STATE=");
     Serial.println(fillEnabled ? "ENABLED" : "DISABLED");
     Serial.print("FILLING:");
     Serial.println(isFilling ? "YES" : "NO");
+    Serial.print("SYSTEM_BUSY:");
+    Serial.println((cycleBusy || waitingForPickup) ? "YES" : "NO");
+    Serial.print("WAITING_PICKUP:");
+    Serial.println(waitingForPickup ? "YES" : "NO");
     Serial.print("DISTANCE:");
     Serial.println(readDistanceCm(), 1);
     Serial.print("LEVEL_SENSOR_RAW:");
@@ -114,15 +164,18 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LEVEL_SENSOR_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(RED_LED_PIN, OUTPUT);
+  pinMode(GREEN_LED_PIN, OUTPUT);
 
   setValve(false);
   noTone(BUZZER_PIN);
+  markCycleReady();
 
   Serial.begin(9600);
   while (!Serial) { ; }
 
   Serial.println("READY");
-  Serial.println("Commands: ENABLE | DISABLE | STATUS");
+  Serial.println("Commands: ENABLE | DISABLE | STATUS | BUSY | READY");
   Serial.print("DETECTION_DISTANCE_CM:");
   Serial.println(DETECTION_DISTANCE_CM, 1);
   Serial.print("FILL_START_DELAY_MS:");
@@ -137,12 +190,13 @@ void loop() {
     handleCommand(command);
   }
 
-  const float distance = fillEnabled ? readDistanceCm() : 999.0;
-  const bool gallonInRange = fillEnabled && (distance <= DETECTION_DISTANCE_CM);
+  const bool shouldTrackGallon = fillEnabled || isFilling || waitingForPickup;
+  const float distance = shouldTrackGallon ? readDistanceCm() : 999.0;
+  const bool gallonInRange = shouldTrackGallon && (distance <= DETECTION_DISTANCE_CM);
   const bool waterNearFull = (digitalRead(LEVEL_SENSOR_PIN) == LEVEL_WATER_DETECTED_STATE);
 
   if (gallonInRange) {
-    if (!gallonDetected) {
+    if (fillEnabled && !gallonDetected) {
       gallonDetected = true;
       gallonDetectedAt = millis();
       Serial.println("GALLON:DETECTED");
@@ -180,9 +234,7 @@ void loop() {
       bool levelStable = (millis() - levelDetectedAt) >= LEVEL_CONFIRM_MS;
       if (minFillElapsed && levelStable) {
         buzzFullAlert();
-        stopFilling("FILLING:COMPLETE");
-        fillEnabled = false;
-        Serial.println("FILL:DISABLED");
+        completeFillingAndWaitForPickup();
       }
     } else {
       levelDetectedAt = 0;
@@ -190,6 +242,24 @@ void loop() {
 
     if (!gallonInRange) {
       stopFilling("FILLING:STOPPED_NO_GALLON");
+    }
+  }
+
+  if (waitingForPickup) {
+    if (!gallonInRange) {
+      if (gallonRemovedAt == 0) {
+        gallonRemovedAt = millis();
+      }
+
+      if ((millis() - gallonRemovedAt) >= REMOVAL_CONFIRM_MS) {
+        waitingForPickup = false;
+        cycleBusy = false;
+        gallonRemovedAt = 0;
+        updateStatusLeds();
+        Serial.println("GALLON:REMOVED_READY");
+      }
+    } else {
+      gallonRemovedAt = 0;
     }
   }
 
