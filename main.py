@@ -5,6 +5,7 @@ GUI interface for managing water gallon inventory with QR codes
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from tkinter import font as tkfont
 from database import InventoryDatabase
 from qr_generator import QRCodeGenerator
 from qr_scanner import QRCodeScanner
@@ -105,6 +106,7 @@ class InventoryApp:
         self._auto_defect_after_id = None   # pending auto-select countdown timer
         self._last_pressure_value = 0.0     # last relative pressure reading from Arduino
         self._last_leak_verdict = None      # 'OK', 'DETECTED', or None
+        self._marquee_labels = {}
         
         # Arduino connection is manual via the Connect button to avoid
         # triggering board reset/self-test routines at app startup.
@@ -184,7 +186,7 @@ class InventoryApp:
         
         # Tab 3: Automated Workflow (scrollable for small touchscreens)
         automation_tab = tk.Frame(self.notebook)
-        self.notebook.add(automation_tab, text="🤖 Auto Workflow")
+        self.notebook.add(automation_tab, text="Auto Workflow")
 
         automation_canvas = tk.Canvas(automation_tab)
         automation_scrollbar = ttk.Scrollbar(automation_tab, orient="vertical", command=automation_canvas.yview)
@@ -216,7 +218,7 @@ class InventoryApp:
 
         # Tab 5: IoT / Web Dashboard
         iot_tab = tk.Frame(self.notebook)
-        self.notebook.add(iot_tab, text="🌐 IoT")
+        self.notebook.add(iot_tab, text="IoT")
         self.setup_iot_panel(iot_tab)
     
     def _start_iot_server(self):
@@ -630,9 +632,20 @@ class InventoryApp:
         step2.grid_columnconfigure(0, weight=1)
         step2.grid_columnconfigure(1, weight=1)
 
-        tk.Label(step2, text="Pressure checks automatically. If unavailable, decide manually:",
-                 font=("Arial", 10, "bold"), bg="#f0f4f8").grid(
-                 row=0, column=0, columnspan=2, pady=(0, 8))
+        self.step2_intro_label = tk.Label(
+            step2,
+            text="Pressure checks automatically. If unavailable, decide manually:",
+            font=("Arial", 10, "bold"),
+            bg="#f0f4f8"
+        )
+        self.step2_intro_label.grid(row=0, column=0, columnspan=2, pady=(0, 8), sticky="ew")
+        self._set_marquee_label(
+            key="step2_intro",
+            label=self.step2_intro_label,
+            text="Pressure checks automatically. If unavailable, decide manually:",
+            bg="#f0f4f8",
+            fg="black"
+        )
 
         self.defect_btn = tk.Button(
             step2, text="❌  DEFECT FOUND",
@@ -2281,7 +2294,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     raise ValueError("No pressure number found")
                 pressure = float(match.group(0))
                 self._last_pressure_value = pressure
-                threshold = 36.0
+                threshold = 15.0
                 mark = "✓" if pressure >= threshold else "…"
                 self.log_workflow(f"PRESSURE: {pressure:.1f} (need >= {threshold:.0f}) {mark}")
                 self.root.after(0, lambda p=pressure: self.pressure_value_label.config(
@@ -2295,7 +2308,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         if "ERROR: UNKNOWN COMMAND: LOWER_HALF" in response.upper():
             if self.awaiting_lower_before_pressure:
                 self.awaiting_lower_before_pressure = False
-                self.root.after(0, lambda: self.pressure_status_label.config(
+                self.root.after(0, lambda: self._set_step2_pressure_status(
                     text="❌ LOWER_HALF unsupported. Upload updated Arduino firmware.",
                     bg="#e74c3c",
                     fg="white"
@@ -2352,7 +2365,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     raise ValueError("No pressure number found")
                 pressure = float(match.group(0))
                 self._last_pressure_value = pressure
-                threshold = 36.0
+                threshold = 15.0
                 mark = "✓" if pressure >= threshold else "…"
                 self.root.after(0, lambda p=pressure: self.pressure_value_label.config(
                     text=f"Pressure: {p:.1f}  (need ≥ {threshold:.0f}) {mark}"))
@@ -2374,7 +2387,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self._last_leak_verdict = 'DETECTED'
             if _IOT_AVAILABLE:
                 web_server.update_sensor_state(leak_detected=True, workflow_state="CHECKING_PRESSURE")
-            self.root.after(0, lambda: self.pressure_status_label.config(
+            self.root.after(0, lambda: self._set_step2_pressure_status(
                 text="❌ LEAK DETECTED!",
                 bg="#e74c3c",
                 fg="white"
@@ -2391,7 +2404,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self._last_leak_verdict = 'OK'
             if _IOT_AVAILABLE:
                 web_server.update_sensor_state(leak_detected=False, workflow_state=self.workflow_state)
-            self.root.after(0, lambda: self.pressure_status_label.config(
+            self.root.after(0, lambda: self._set_step2_pressure_status(
                 text="✓ No Leak - Pressure OK",
                 bg="#27ae60",
                 fg="white"
@@ -2467,18 +2480,92 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 self.root.after(0, lambda: self.workflow_complete(refilled=False))
 
         elif "PUMP:ON" in response:
-            self.root.after(0, lambda: self.pressure_status_label.config(
+            self.root.after(0, lambda: self._set_step2_pressure_status(
                 text="⏳ Air pump running — pressurising...",
                 bg="#8e44ad",
                 fg="white"
             ))
 
         elif "PUMP:OFF" in response:
-            self.root.after(0, lambda: self.pressure_status_label.config(
+            self.root.after(0, lambda: self._set_step2_pressure_status(
                 text="⏳ Air pump stopped — reading pressure...",
                 bg="#f39c12",
                 fg="white"
             ))
+
+    def _set_marquee_label(self, key, label, text, bg=None, fg=None):
+        """Set text for a label and scroll it right-to-left when it overflows."""
+        if bg is not None:
+            label.config(bg=bg)
+        if fg is not None:
+            label.config(fg=fg)
+        label.config(text=text, anchor="w")
+
+        state = self._marquee_labels.get(key, {})
+        job = state.get("job")
+        if job is not None:
+            self.root.after_cancel(job)
+
+        self._marquee_labels[key] = {
+            "label": label,
+            "source": text,
+            "buffer": f"{text}     ",
+            "job": self.root.after(80, lambda k=key: self._tick_marquee_label(k))
+        }
+
+    def _tick_marquee_label(self, key):
+        """Marquee ticker loop for an individual label key."""
+        state = self._marquee_labels.get(key)
+        if not state:
+            return
+
+        label = state.get("label")
+        if label is None or not label.winfo_exists():
+            self._marquee_labels.pop(key, None)
+            return
+
+        source = state.get("source", "")
+        if not source:
+            label.config(text="")
+            return
+
+        width = label.winfo_width()
+        if width <= 1:
+            state["job"] = self.root.after(120, lambda k=key: self._tick_marquee_label(k))
+            return
+
+        text_font = tkfont.Font(font=label.cget("font"))
+        if text_font.measure(source) <= max(40, width - 20):
+            if label.cget("text") != source:
+                label.config(text=source, anchor="w")
+            state["job"] = self.root.after(350, lambda k=key: self._tick_marquee_label(k))
+            return
+
+        buffer_text = state.get("buffer", f"{source}     ")
+        buffer_text = buffer_text[1:] + buffer_text[0]
+        state["buffer"] = buffer_text
+        label.config(text=buffer_text, anchor="w")
+        state["job"] = self.root.after(140, lambda k=key: self._tick_marquee_label(k))
+
+    def _set_step2_defect_status(self, text, fg="black", bg="#f0f4f8"):
+        """Update Step 2 defect status with marquee support."""
+        self._set_marquee_label(
+            key="step2_defect_status",
+            label=self.defect_status_label,
+            text=text,
+            bg=bg,
+            fg=fg
+        )
+
+    def _set_step2_pressure_status(self, text, bg="#ecf0f1", fg="black"):
+        """Update Step 2 pressure status and enable marquee when text overflows."""
+        self._set_marquee_label(
+            key="step2_pressure_status",
+            label=self.pressure_status_label,
+            text=text,
+            bg=bg,
+            fg=fg
+        )
 
     def _raise_actuator_after_pressure(self):
         """Retract primary actuator after pressure result delay."""
@@ -2591,8 +2678,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.auto_qr_input.config(state=tk.NORMAL)
         self.auto_qr_input.delete(0, tk.END)
         self.qr_status_label.config(text="Waiting for scan...", fg="gray")
-        self.defect_status_label.config(text="")
-        self.pressure_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
+        self._set_step2_defect_status(text="")
+        self._set_step2_pressure_status(text="Waiting...", bg="#ecf0f1", fg="black")
         self.pressure_value_label.config(text="Pressure: --")
         self.filling_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
         self.ultrasonic_distance_label.config(text="Distance: -- cm")
@@ -2690,12 +2777,12 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.awaiting_lower_before_pressure = False
             self.defect_btn.config(state=tk.DISABLED)
             self.no_defect_btn.config(state=tk.DISABLED)
-            self.defect_status_label.config(
+            self._set_step2_defect_status(
                 text="⏳ Preparing pressure check...",
                 fg="#e67e22"
             )
             if self.arduino_serial and self.arduino_serial.is_open:
-                self.pressure_status_label.config(
+                self._set_step2_pressure_status(
                     text="⏳ Waiting 5s before lowering actuator...",
                     bg="#8e44ad",
                     fg="white"
@@ -2744,7 +2831,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             else:
                 self.log_workflow("⚠ Arduino not connected - reject actuator not triggered")
             
-            self.defect_status_label.config(
+            self._set_step2_defect_status(
                 text="❌ Defect reported. Gallon rejected.",
                 fg="#e74c3c"
             )
@@ -2763,11 +2850,11 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             if self.manual_defect_fallback:
                 self.manual_defect_fallback = False
                 self.log_workflow(f"✓ Manual decision: no defect on {self.current_gallon_id}")
-                self.defect_status_label.config(
+                self._set_step2_defect_status(
                     text="✓ Manual check passed",
                     fg="#27ae60"
                 )
-                self.pressure_status_label.config(
+                self._set_step2_pressure_status(
                     text="✓ Manual decision accepted",
                     bg="#27ae60",
                     fg="white"
@@ -2779,7 +2866,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             else:
                 # Backward-compatible path
                 self.log_workflow(f"✓ No defect on {self.current_gallon_id}")
-                self.defect_status_label.config(
+                self._set_step2_defect_status(
                     text="✓ No defect detected",
                     fg="#27ae60"
                 )
@@ -2797,12 +2884,12 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.workflow_state = "CHECKING_DEFECT"
         self.log_workflow(reason)
 
-        self.pressure_status_label.config(
+        self._set_step2_pressure_status(
             text="⚠ Pressure check unavailable",
             bg="#e67e22",
             fg="white"
         )
-        self.defect_status_label.config(
+        self._set_step2_defect_status(
             text="⚠ Choose manually: DEFECT FOUND or NO DEFECT",
             fg="#e67e22"
         )
@@ -2816,7 +2903,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         if self.workflow_state != "CHECKING_DEFECT":
             return
         if seconds_left > 0:
-            self.defect_status_label.config(
+            self._set_step2_defect_status(
                 text=f"⏱ Auto-selecting in {seconds_left}s (click to override)...",
                 fg="#e67e22"
             )
@@ -2831,7 +2918,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Auto-select defect or no-defect based on last pressure verdict / threshold."""
         if self.workflow_state != "CHECKING_DEFECT":
             return
-        NO_LEAK_PRESSURE = 36.0  # must match Arduino NO_LEAK_PRESSURE constant
+        NO_LEAK_PRESSURE = 15.0  # must match Arduino NO_LEAK_PRESSURE constant
         verdict = self._last_leak_verdict
         if verdict == 'DETECTED':
             has_defect = True
@@ -2853,7 +2940,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         if self.workflow_state != "CHECKING_PRESSURE" or self.awaiting_lower_before_pressure:
             return
         if seconds_left > 0:
-            self.pressure_status_label.config(
+            self._set_step2_pressure_status(
                 text=f"⏳ Waiting before pressure check... {seconds_left}s",
                 bg="#8e44ad",
                 fg="white"
@@ -2876,7 +2963,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.awaiting_lower_before_pressure = True
         self.send_arduino_command("LOWER_HALF")
         self.log_workflow("⬇ Actuator lowering to 50%...")
-        self.pressure_status_label.config(
+        self._set_step2_pressure_status(
             text="⏳ Lowering actuator to 50%...",
             bg="#8e44ad",
             fg="white"
@@ -2885,7 +2972,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     def workflow_check_pressure(self):
         """Check pressure/leak"""
         self.log_workflow("Testing pressure...")
-        self.pressure_status_label.config(
+        self._set_step2_pressure_status(
             text="⏳ Testing pressure...",
             bg="#f39c12",
             fg="white"
@@ -2980,8 +3067,8 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         self.auto_qr_input.delete(0, tk.END)
         self.auto_qr_input.focus()
         self.qr_status_label.config(text="👉 Scan QR code now", fg="#e67e22")
-        self.defect_status_label.config(text="")
-        self.pressure_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
+        self._set_step2_defect_status(text="")
+        self._set_step2_pressure_status(text="Waiting...", bg="#ecf0f1", fg="black")
         self.pressure_value_label.config(text="Pressure: --")
         self.filling_status_label.config(text="Waiting...", bg="#ecf0f1", fg="black")
         self.ultrasonic_distance_label.config(text="Distance: -- cm")
