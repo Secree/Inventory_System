@@ -124,6 +124,7 @@ const int AIR_PUMP_OFF   = HIGH;
 
 const float NO_LEAK_PRESSURE = 40.0;      // Required relative pressure rise above baseline for no-leak
 const unsigned long PRESSURE_TEST_TIME_MS = 15000;  // Wait 15 seconds before leak decision
+const unsigned long PUMP_ON_TIME_MS = 3000;         // Keep pump ON for first 3 seconds of pressure test
 const int CONSISTENT_HIGH_READS_REQUIRED = 3;        // Consecutive reads above threshold needed for no-leak
 
 // Ultrasonic distances (cm)
@@ -171,6 +172,7 @@ int gallonsProcessed = 0;
 float pressureBaseline = -1.0;
 float lastPressure = 0.0;
 int highPressureStreak = 0;
+bool pumpIsOn = false;
 
 long readPressureRaw24();
 float rawToPressure(long raw);
@@ -287,6 +289,12 @@ void runStateMachine() {
         lastPressureCheck = millis();
         float absolutePressure = readPressure();
         unsigned long elapsed = millis() - stateStartTime;
+
+        // Pump runs only during the first few seconds of the pressure test.
+        if (pumpIsOn && elapsed >= PUMP_ON_TIME_MS) {
+          pumpOff();
+          Serial.println("PUMP:OFF");
+        }
 
         // First reading in this check window is the baseline.
         if (pressureBaseline < 0.0) {
@@ -438,18 +446,20 @@ void runStateMachine() {
 
 void pumpOn() {
   digitalWrite(AIR_PUMP_RELAY, AIR_PUMP_ON);
+  pumpIsOn = true;
 }
 
 void pumpOff() {
   digitalWrite(AIR_PUMP_RELAY, AIR_PUMP_OFF);
+  pumpIsOn = false;
 }
 
 void changeState(SystemState newState) {
   // Pump runs only during pressure check.
-  if (newState == CHECKING_PRESSURE) {
+  if (newState == CHECKING_PRESSURE && !pumpIsOn) {
     pumpOn();
     Serial.println("PUMP:ON");
-  } else if (currentState == CHECKING_PRESSURE) {
+  } else if (currentState == CHECKING_PRESSURE && pumpIsOn) {
     pumpOff();
     Serial.println("PUMP:OFF");
   }
@@ -716,6 +726,13 @@ void handleSerialCommands() {
       Serial.println("PUMP:ON");
 
       while (millis() - testStart < PRESSURE_TEST_TIME_MS) {
+        unsigned long elapsed = millis() - testStart;
+
+        if (pumpIsOn && elapsed >= PUMP_ON_TIME_MS) {
+          pumpOff();
+          Serial.println("PUMP:OFF");
+        }
+
         latestAbs = readPressure();
         float latestRel = toRelativePressure(latestAbs, pressureBaseline);
         float requiredRiseNow = requiredRiseForNoLeak(pressureBaseline);
@@ -728,13 +745,16 @@ void handleSerialCommands() {
 
         Serial.print("PRESSURE:");
         Serial.println(latestRel, 1);
+        
         Serial.print("WORKLOG PRESSURE:");
         Serial.println(latestRel, 1);
         delay(PRESSURE_CHECK_INTERVAL);
       }
 
-      pumpOff();
-      Serial.println("PUMP:OFF");
+      if (pumpIsOn) {
+        pumpOff();
+        Serial.println("PUMP:OFF");
+      }
 
       float latestRel = toRelativePressure(latestAbs, pressureBaseline);
       float requiredRise = requiredRiseForNoLeak(pressureBaseline);
