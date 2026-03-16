@@ -728,6 +728,9 @@ void handleSerialCommands() {
 
         Serial.print("PRESSURE:");
         Serial.println(latestRel, 1);
+        
+        Serial.print("WORKLOG PRESSURE:");
+        Serial.println(latestRel, 1);
         delay(PRESSURE_CHECK_INTERVAL);
       }
 
