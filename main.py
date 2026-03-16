@@ -639,13 +639,6 @@ class InventoryApp:
             bg="#f0f4f8"
         )
         self.step2_intro_label.grid(row=0, column=0, columnspan=2, pady=(0, 8), sticky="ew")
-        self._set_marquee_label(
-            key="step2_intro",
-            label=self.step2_intro_label,
-            text="Pressure checks automatically. If unavailable, decide manually:",
-            bg="#f0f4f8",
-            fg="black"
-        )
 
         self.defect_btn = tk.Button(
             step2, text="❌  DEFECT FOUND",
@@ -2548,14 +2541,11 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         state["job"] = self.root.after(140, lambda k=key: self._tick_marquee_label(k))
 
     def _set_step2_defect_status(self, text, fg="black", bg="#f0f4f8"):
-        """Update Step 2 defect status with marquee support."""
-        self._set_marquee_label(
-            key="step2_defect_status",
-            label=self.defect_status_label,
-            text=text,
-            bg=bg,
-            fg=fg
-        )
+        """Update Step 2 defect status label directly."""
+        state = self._marquee_labels.pop("step2_defect_status", None)
+        if state and state.get("job"):
+            self.root.after_cancel(state["job"])
+        self.defect_status_label.config(text=text, fg=fg, bg=bg, anchor="center")
 
     def _set_step2_pressure_status(self, text, bg="#ecf0f1", fg="black"):
         """Update Step 2 pressure status and enable marquee when text overflows."""
