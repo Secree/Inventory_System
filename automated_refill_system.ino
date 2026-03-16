@@ -102,7 +102,7 @@ const int ECHO_PIN = A0;
 const int ACTUATOR_ENA   = 9;   // PWM enable
 const int ACTUATOR_IN1   = 5;   // Direction control 1 (extend = lower)
 const int ACTUATOR_IN2   = 6;   // Direction control 2 (retract = raise)
-const int ACTUATOR_SPEED = 200; // PWM speed (0-255)
+const int ACTUATOR_SPEED = 255; // PWM speed (0-255)
 
 // Reject actuator DC motor (L298N via 12V supply)
 //   ENA  -> Arduino Pin 10
@@ -138,8 +138,8 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
-const int ACTUATOR_EXTEND_TIME = 7000;   // ms - time for primary actuator to fully extend
-const int ACTUATOR_RETRACT_TIME = 7000;  // ms - time for primary actuator to fully retract
+const int ACTUATOR_EXTEND_TIME = 8000;   // ms - time for primary actuator to fully extend
+const int ACTUATOR_RETRACT_TIME = 8000;  // ms - time for primary actuator to fully retract
 const int ACTUATOR_HALF_EXTEND_TIME = ACTUATOR_EXTEND_TIME / 2;  // ms - 50% extension stroke
 const int REJECT_PUSH_TIME = 5000;        // ms - reject pusher extend time
 const int REJECT_RETRACT_TIME = 5000;     // ms - reject pusher retract time
