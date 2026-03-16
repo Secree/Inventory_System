@@ -2319,15 +2319,22 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 ))
             return
         
-        # Update UI based on responses
-        if "PRESSURE:" in response:
+        # Update UI based on responses.
+        # Skip annotation lines (PRESSURE:THRESHOLD=, PRESSURE:BASELINE, etc.) — only handle
+        # pure numeric readings so the threshold value doesn't overwrite the real reading.
+        _PRESSURE_SKIP = ("PRESSURE:THRESHOLD", "PRESSURE:BASELINE",
+                          "PRESSURE:TEST_START", "PRESSURE:FINAL")
+        if "PRESSURE:" in response and not any(a in response for a in _PRESSURE_SKIP):
             try:
                 match = re.search(r'[-+]?\d*\.?\d+', response)
                 if not match:
                     raise ValueError("No pressure number found")
                 pressure = float(match.group(0))
                 self._last_pressure_value = pressure
-                self.root.after(0, lambda: self.pressure_value_label.config(text=f"Pressure: {pressure:.1f}"))
+                threshold = 36.0
+                mark = "✓" if pressure >= threshold else "…"
+                self.root.after(0, lambda p=pressure: self.pressure_value_label.config(
+                    text=f"Pressure: {p:.1f}  (need ≥ {threshold:.0f}) {mark}"))
                 if _IOT_AVAILABLE:
                     web_server.update_sensor_state(pressure_psi=pressure, workflow_state=self.workflow_state)
             except:

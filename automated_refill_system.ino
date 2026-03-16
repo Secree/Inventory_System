@@ -253,12 +253,17 @@ void loop() {
   if (systemRunning) {
     runStateMachine();
 
-    // Log air pressure every second throughout the workflow
+    // Log air pressure every second throughout the workflow.
+    // Sends relative pressure when baseline is set (same 0-based scale as NO_LEAK_PRESSURE = 36),
+    // or absolute pressure before any test baseline is established.
     if (millis() - lastPressureLog >= 1000) {
       lastPressureLog = millis();
-      float wfPressure = readPressure();
+      float absP = readPressure();
+      float logP = (pressureBaseline >= 0.0)
+                    ? toRelativePressure(absP, pressureBaseline)
+                    : absP;
       Serial.print("PRESSURE_LOG:");
-      Serial.println(wfPressure, 1);
+      Serial.println(logP, 1);
     }
   }
   
