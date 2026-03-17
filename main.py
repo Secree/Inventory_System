@@ -106,6 +106,7 @@ class InventoryApp:
         self._auto_defect_after_id = None   # pending auto-select countdown timer
         self._last_pressure_value = 0.0     # last relative pressure reading from Arduino
         self._last_leak_verdict = None      # 'OK', 'DETECTED', or None
+        self._last_workflow_complete_ts = 0.0
         self._marquee_labels = {}
         
         # Arduino connection is manual via the Connect button to avoid
@@ -2045,6 +2046,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 try:
                     if self.arduino_serial.in_waiting:
                         line = self.arduino_serial.readline().decode('utf-8', errors='ignore').strip()
+                        line = self._clean_serial_response(line)
                         if line:
                             self.process_arduino_response(line)
                     time.sleep(0.1)
@@ -2114,6 +2116,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                             while '\n' in self._fill_serial_buffer:
                                 line, self._fill_serial_buffer = self._fill_serial_buffer.split('\n', 1)
                                 line = line.strip()
+                                line = self._clean_serial_response(line)
                                 if line:
                                     self.process_fill_arduino_response(line)
                     time.sleep(0.1)
@@ -2150,6 +2153,9 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
     def _should_log_arduino_response(self, response):
         """Suppress high-frequency telemetry lines to keep workflow log readable."""
+        if self._looks_like_serial_noise(response):
+            return False
+
         upper = response.upper().strip()
 
         noisy_prefixes = (
@@ -2179,6 +2185,49 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             return False
 
         return not upper.startswith(noisy_prefixes)
+
+    def _clean_serial_response(self, response):
+        """Normalize serial input and drop noisy fragments."""
+        if response is None:
+            return ""
+
+        cleaned = ''.join(ch for ch in response if ch.isprintable()).strip()
+        if not cleaned:
+            return ""
+
+        if self._looks_like_serial_noise(cleaned):
+            return ""
+
+        return cleaned
+
+    def _looks_like_serial_noise(self, response):
+        """Best-effort filter for corrupted serial fragments."""
+        if not response:
+            return True
+
+        known_tokens = (
+            "READY", "LEAK:", "CONVEYOR:", "GALLON:", "FILLING:",
+            "PRESSURE", "DISTANCE:", "PUMP:", "ACTUATOR:", "REJECT:",
+            "ERROR", "STATE:", "RUNNING:", "WORKLOG", "LEVEL_", "COMMANDS:"
+        )
+
+        upper = response.upper()
+        if any(token in upper for token in known_tokens):
+            return False
+
+        weird_chars = sum(
+            1 for c in response
+            if not (c.isalnum() or c in " :._-+/=,%()[]")
+        )
+        letters = sum(1 for c in response if c.isalpha())
+
+        if weird_chars > max(2, len(response) // 4):
+            return True
+
+        if letters == 0 and not any(ch.isdigit() for ch in response):
+            return True
+
+        return False
 
     def process_fill_arduino_response(self, response):
         """Process responses from Arduino2 (ultrasonic + solenoid fill controller)."""
@@ -2459,8 +2508,11 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 bg="#27ae60",
                 fg="white"
             ))
-            self.workflow_state = "COMPLETE"
-            self.root.after(0, self.workflow_complete)
+            if self.fill_arduino_serial and self.fill_arduino_serial.is_open:
+                self.workflow_state = "WAITING_PICKUP"
+            else:
+                self.workflow_state = "COMPLETE"
+                self.root.after(0, self.workflow_complete)
         
         elif "CYCLE:COMPLETE" in response:
             self.root.after(0, self.workflow_complete)
@@ -2576,6 +2628,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
 
     def log_workflow(self, message):
         """Add message to workflow log"""
+        if threading.current_thread() is not threading.main_thread():
+            self.root.after(0, lambda m=message: self.log_workflow(m))
+            return
+
         try:
             timestamp = time.strftime("%H:%M:%S")
             self.workflow_log.config(state=tk.NORMAL)
@@ -3037,6 +3093,14 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def workflow_complete(self, refilled=True):
         """Complete workflow cycle"""
+        now = time.time()
+        if now - self._last_workflow_complete_ts < 0.8:
+            return
+        self._last_workflow_complete_ts = now
+
+        if not self.current_gallon_id and not self.qr_scan_locked:
+            return
+
         self.send_fill_arduino_command("READY")
         self.auto_feed_conveyor_running = False
         self._last_leak_verdict = None
