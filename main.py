@@ -370,13 +370,22 @@ class InventoryApp:
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         stats_container = tk.Frame(canvas)
         
-        stats_container.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        def on_container_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            # Resize container width to match canvas width
+            canvas.itemconfig(stats_window, width=event.width)
         
-        canvas.create_window((0, 0), window=stats_container, anchor="nw")
+        stats_container.bind("<Configure>", on_container_configure)
+        
+        stats_window = canvas.create_window((0, 0), window=stats_container, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+        
+        def on_canvas_configure(event):
+            # Stretch container to fill canvas width
+            if stats_container.winfo_width() < event.width:
+                canvas.itemconfig(stats_window, width=event.width)
+        
+        canvas.bind("<Configure>", on_canvas_configure)
         
         # Store canvas for global scrolling
         self.canvas_widgets['stats'] = canvas
@@ -439,13 +448,36 @@ class InventoryApp:
         card.pack(padx=40, pady=40, ipadx=10, ipady=6)
         card.config(width=520)
 
-        # Auto-generated ID
-        tk.Label(card, text="Inventory ID (Auto-generated):",
+        # Inventory ID (auto suggested, but editable)
+        tk.Label(card, text="Inventory ID (Auto by default, editable):",
                  font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 4))
-        self.id_display = tk.Label(card, text="Will be generated automatically",
-                                   font=("Arial", 11), bg="#ecf0f1",
-                                   anchor=tk.W, padx=10, pady=8, width=44)
-        self.id_display.pack(fill=tk.X, pady=(0, 14))
+
+        id_row = tk.Frame(card)
+        id_row.pack(fill=tk.X, pady=(0, 6))
+
+        self.id_entry = tk.Entry(id_row, font=("Arial", 12))
+        self.id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6)
+        self.id_entry.bind('<KeyRelease>', self.on_id_entry_changed)
+
+        tk.Button(
+            id_row,
+            text="Auto",
+            command=self.reset_id_to_auto,
+            bg="#3498db",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            cursor="hand2",
+            padx=12,
+            pady=6
+        ).pack(side=tk.LEFT, padx=(6, 0))
+
+        self.id_hint_label = tk.Label(
+            card,
+            text="",
+            font=("Arial", 9),
+            fg="#555"
+        )
+        self.id_hint_label.pack(anchor=tk.W, pady=(0, 10))
 
         # Gallon Name
         tk.Label(card, text="Gallon Name:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 4))
@@ -910,8 +942,14 @@ class InventoryApp:
             messagebox.showwarning("Input Error", "Please enter Gallon Name")
             return
         
-        # Auto-generate inventory ID
-        inventory_id = self.db.generate_inventory_id()
+        raw_inventory_id = self.id_entry.get().strip().upper()
+        if raw_inventory_id:
+            if not re.fullmatch(r'WG-\d{4}', raw_inventory_id):
+                messagebox.showwarning("Input Error", "Inventory ID must be in format WG-0001")
+                return
+            inventory_id = raw_inventory_id
+        else:
+            inventory_id = self.db.generate_inventory_id()
         
         # Add to database
         success, message = self.db.add_gallon(inventory_id, name)
@@ -1845,21 +1883,49 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                 messagebox.showinfo("Success", "Gallon deleted")
                 self.refresh_inventory_list()
                 self.update_statistics()
+                self.update_id_preview()
             else:
                 messagebox.showerror("Error", message)
     
     def clear_form(self):
         """Clear input form"""
         self.name_entry.delete(0, tk.END)
-        self.update_id_preview()
+        self.id_auto_mode = True
+        self.update_id_preview(force=True)
+
+    def on_id_entry_changed(self, event=None):
+        """Mark ID mode as manual when user edits the ID entry."""
+        current_value = self.id_entry.get().strip().upper()
+        self.id_auto_mode = (current_value == "" or current_value == getattr(self, 'last_suggested_id', ""))
+
+    def reset_id_to_auto(self):
+        """Reset inventory ID field back to auto-suggested value."""
+        self.id_auto_mode = True
+        self.update_id_preview(force=True)
     
-    def update_id_preview(self):
-        """Update the preview of the next auto-generated ID"""
+    def update_id_preview(self, force=False):
+        """Update suggested inventory ID and preserve manual override unless forced."""
         try:
             next_id = self.db.generate_inventory_id()
-            self.id_display.config(text=f"{next_id} (Next available)")
-        except:
-            self.id_display.config(text="WG-0001 (Next available)")
+            self.last_suggested_id = next_id
+
+            should_replace_entry = force or not self.id_entry.get().strip() or getattr(self, 'id_auto_mode', True)
+            if should_replace_entry:
+                self.id_entry.delete(0, tk.END)
+                self.id_entry.insert(0, next_id)
+                self.id_auto_mode = True
+
+            self.id_hint_label.config(text=f"Suggested next ID: {next_id}")
+        except Exception:
+            fallback = "WG-0001"
+            self.last_suggested_id = fallback
+            should_replace_entry = force or not self.id_entry.get().strip() or getattr(self, 'id_auto_mode', True)
+            if should_replace_entry:
+                self.id_entry.delete(0, tk.END)
+                self.id_entry.insert(0, fallback)
+                self.id_auto_mode = True
+
+            self.id_hint_label.config(text=f"Suggested next ID: {fallback}")
     
     def toggle_fullscreen(self):
         """Toggle fullscreen mode"""
@@ -2626,10 +2692,65 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.root.after(0, lambda: self.conveyor_status.config(text="●", fg="#95a5a6"))
             self.log_workflow("✓ Conveyor kept OFF after actuator lift")
 
+    def _is_important_workflow_log(self, message):
+        """Return True only for high-value operator log entries."""
+        if not message:
+            return False
+
+        msg = str(message).strip()
+        upper = msg.upper()
+
+        # Always keep warnings and errors.
+        if any(mark in msg for mark in ("⚠", "❌")):
+            return True
+
+        # Keep critical Arduino state transitions only.
+        if upper.startswith("ARDUINO1:") or upper.startswith("ARDUINO2:"):
+            important_tokens = (
+                "GALLON:DETECTED",
+                "GALLON:REMOVED_READY",
+                "FILLING:START",
+                "FILLING:COMPLETE",
+                "FILLING:STOPPED_NO_GALLON",
+                "LEAK:DETECTED",
+                "LEAK:OK",
+                "REJECT:START",
+                "REJECT:DONE",
+                "CYCLE:COMPLETE"
+            )
+            return any(token in upper for token in important_tokens)
+
+        # Keep workflow milestones and outcomes.
+        important_prefixes = (
+            "🤖 AUTOMATED WORKFLOW STARTED",
+            "▶ WORKFLOW AUTO-STARTED FROM QR SCAN",
+            "⏹ WORKFLOW STOPPED",
+            "🔄 WORKFLOW RESET",
+            "✓ SCANNED:",
+            "⚙ AUTO-DECISION",
+            "TESTING PRESSURE",
+            "MOVING TO FILL STATION",
+            "STARTING FILL PROCESS",
+            "✓ GALLON",
+            "↻ CYCLE FINISHED",
+            "↻ READY FOR NEXT GALLON SCAN"
+        )
+        if any(upper.startswith(prefix) for prefix in important_prefixes):
+            return True
+
+        # Keep binary decision outcomes.
+        if "DEFECT FOUND" in upper or "NO DEFECT" in upper:
+            return True
+
+        return False
+
     def log_workflow(self, message):
         """Add message to workflow log"""
         if threading.current_thread() is not threading.main_thread():
             self.root.after(0, lambda m=message: self.log_workflow(m))
+            return
+
+        if not self._is_important_workflow_log(message):
             return
 
         try:

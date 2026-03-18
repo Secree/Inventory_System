@@ -28,7 +28,7 @@ const unsigned long REMOVAL_CONFIRM_MS = 500;
 const unsigned long LOOP_DELAY_MS = 120;
 
 const int RELAY_ON = LOW;
-const int RELAY_OFF = HIGH;
+const int RELAY_OFF   = HIGH;
 const int LEVEL_WATER_DETECTED_STATE = HIGH; // <-- flipped from LOW to HIGH
 
 bool fillEnabled = false;
@@ -172,16 +172,8 @@ void setup() {
   markCycleReady();
 
   Serial.begin(9600);
-  while (!Serial) { ; }
 
   Serial.println("READY");
-  Serial.println("Commands: ENABLE | DISABLE | STATUS | BUSY | READY");
-  Serial.print("DETECTION_DISTANCE_CM:");
-  Serial.println(DETECTION_DISTANCE_CM, 1);
-  Serial.print("FILL_START_DELAY_MS:");
-  Serial.println(FILL_START_DELAY_MS);
-  Serial.print("LEVEL_SENSOR_INITIAL:");
-  Serial.println(digitalRead(LEVEL_SENSOR_PIN)); // shows state at boot
 }
 
 void loop() {

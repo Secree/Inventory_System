@@ -6,6 +6,7 @@ Manages SQLite database operations for gallon inventory
 import sqlite3
 from datetime import datetime
 import os
+import re
 
 
 class InventoryDatabase:
@@ -104,28 +105,25 @@ class InventoryDatabase:
         return gallons
     
     def generate_inventory_id(self):
-        """Generate next available inventory ID"""
-        self.cursor.execute('SELECT inventory_id FROM gallons ORDER BY inventory_id DESC LIMIT 1')
-        result = self.cursor.fetchone()
-        
-        if result:
-            last_id = result[0]
-            # Extract number from ID (e.g., 'WG-0001' -> 1)
-            if last_id.startswith('WG-'):
-                try:
-                    num = int(last_id.split('-')[1])
-                    return f'WG-{num + 1:04d}'
-                except:
-                    pass
-            # If format is different, try to extract any number
-            import re
-            numbers = re.findall(r'\d+', last_id)
-            if numbers:
-                last_num = int(numbers[-1])
-                return f'WG-{last_num + 1:04d}'
-        
-        # First gallon
-        return 'WG-0001'
+        """Generate the smallest available WG-#### inventory ID."""
+        self.cursor.execute("""
+            SELECT inventory_id
+            FROM gallons
+            WHERE inventory_id GLOB 'WG-[0-9][0-9][0-9][0-9]'
+        """)
+        results = self.cursor.fetchall()
+
+        used_numbers = set()
+        for row in results:
+            match = re.match(r'^WG-(\d{4})$', row[0])
+            if match:
+                used_numbers.add(int(match.group(1)))
+
+        next_number = 1
+        while next_number in used_numbers:
+            next_number += 1
+
+        return f'WG-{next_number:04d}'
     
     def increment_refills(self, inventory_id):
         """Increment refill count for a gallon"""
