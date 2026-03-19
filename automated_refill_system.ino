@@ -104,6 +104,7 @@ const int ACTUATOR_IN1   = 5;   // Direction control 1 (extend = lower)
 const int ACTUATOR_IN2   = 6;   // Direction control 2 (retract = raise)
 const int ACTUATOR_EXTEND_SPEED = 180; // PWM speed while extending (lower), reduced for shorter stroke control
 const int ACTUATOR_RETRACT_SPEED = 180; // PWM speed while retracting (raise)
+const int ACTUATOR_HOLD_RAISE_SPEED = 120; // PWM hold force to keep actuator up during reject push
 
 // Reject actuator DC motor (L298N via 12V supply)
 //   ENA  -> Arduino Pin 10
@@ -185,6 +186,7 @@ float requiredRiseForNoLeak(float baselinePressure);
 void lowerPrimaryActuator(bool announceComplete = true);
 void lowerPrimaryActuatorHalf(bool announceComplete = true);
 void raisePrimaryActuator(bool announceComplete = true);
+void holdPrimaryActuatorRaised();
 void stopPrimaryActuator();
 void extendRejectActuator();
 void retractRejectActuator();
@@ -549,6 +551,13 @@ void raisePrimaryActuator(bool announceComplete) {
   }
 }
 
+void holdPrimaryActuatorRaised() {
+  // Keep retract direction energized so actuator does not fall during reject push.
+  digitalWrite(ACTUATOR_IN1, LOW);
+  digitalWrite(ACTUATOR_IN2, HIGH);
+  analogWrite(ACTUATOR_ENA, ACTUATOR_HOLD_RAISE_SPEED);
+}
+
 void stopPrimaryActuator() {
   digitalWrite(ACTUATOR_IN1, LOW);
   digitalWrite(ACTUATOR_IN2, LOW);
@@ -585,12 +594,16 @@ void rejectDefectiveGallon() {
   Serial.println("ACTUATOR:RAISED");
   delay(REJECT_AFTER_RAISE_DELAY);
 
+  // Hold actuator up for the whole reject movement.
+  holdPrimaryActuatorRaised();
+
   // Step 2: Use second actuator to push defective gallon out.
   extendRejectActuator();
   delay(REJECT_PUSH_TIME);
   retractRejectActuator();
   delay(REJECT_RETRACT_TIME);
   stopRejectActuator();
+  stopPrimaryActuator();
 
   Serial.println("REJECT:DONE");
 }
