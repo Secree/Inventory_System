@@ -351,8 +351,9 @@ void runStateMachine() {
       {
         long distance = getUltrasonicDistance();
         if (distance > 0 && distance <= GALLON_DETECTION_DISTANCE) {
-          stopConveyor();
           Serial.println("GALLON:DETECTED");
+          delay(1000);  // Keep conveyor moving 1s after detection
+          stopConveyor();
           Serial.println("CONVEYOR:STOPPED");
           delay(500);  // Let gallon settle
           changeState(FILLING);
