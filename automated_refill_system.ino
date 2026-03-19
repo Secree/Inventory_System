@@ -52,6 +52,7 @@
  *   "RESET"  -> Reset to initial state
  *   "CONVEYOR_START" -> Start conveyor motor
  *   "CONVEYOR_STOP"  -> Stop conveyor motor
+ *   "RUN_UNTIL_FULL" -> Start conveyor and stop only when full level is detected
  *   "REJECT" -> Extend reject actuator to eject defective gallon
  *   "LOWER"  -> Extend actuator down (seal gallon for pressure test)
  *   "RAISE"  -> Retract actuator up
@@ -181,6 +182,7 @@ float pressureBaseline = -1.0;
 float lastPressure = 0.0;
 int highPressureStreak = 0;
 bool pumpIsOn = false;
+bool conveyorRunUntilFullMode = false;
 
 long readPressureRaw24();
 float rawToPressure(long raw);
@@ -247,7 +249,7 @@ void setup() {
   Serial.println("=================================");
   Serial.println("Automated Gallon Refill System");
   Serial.println("=================================");
-  Serial.println("Commands: START | STOP | STATUS | RESET | REJECT | LOWER | LOWER_HALF | RAISE");
+  Serial.println("Commands: START | STOP | STATUS | RESET | CONVEYOR_START | CONVEYOR_STOP | RUN_UNTIL_FULL | REJECT | LOWER | LOWER_HALF | RAISE");
   Serial.println("PRESSURE:SCK_OUT_MODE (OUT->D2, SCK->D3)");
   Serial.println("System in IDLE state");
 }
@@ -259,6 +261,17 @@ void setup() {
 void loop() {
   // Handle serial commands
   handleSerialCommands();
+
+  // Manual mode: keep conveyor running until full-level distance is reached.
+  if (conveyorRunUntilFullMode) {
+    long distance = getUltrasonicDistance();
+    if (distance > 0 && distance <= WATER_FULL_DISTANCE) {
+      stopConveyor();
+      conveyorRunUntilFullMode = false;
+      Serial.println("CONVEYOR:STOPPED_FULL");
+      Serial.println("FILLING:COMPLETE");
+    }
+  }
   
   // Run state machine if system is active
   if (systemRunning) {
@@ -753,6 +766,7 @@ void handleSerialCommands() {
     }
     else if (command == "STOP") {
       systemRunning = false;
+      conveyorRunUntilFullMode = false;
       stopConveyor();
       closeValve();
       raisePrimaryActuator(false);
@@ -839,6 +853,7 @@ void handleSerialCommands() {
     }
     else if (command == "RESET") {
       systemRunning = false;
+      conveyorRunUntilFullMode = false;
       stopConveyor();
       closeValve();
       raisePrimaryActuator(false);
@@ -850,12 +865,20 @@ void handleSerialCommands() {
       Serial.println("SYSTEM:RESET");
     }
     else if (command == "CONVEYOR_START") {
+      conveyorRunUntilFullMode = false;
       startConveyor();
       Serial.println("CONVEYOR:MOVING");
     }
     else if (command == "CONVEYOR_STOP") {
+      conveyorRunUntilFullMode = false;
       stopConveyor();
       Serial.println("CONVEYOR:STOPPED");
+    }
+    else if (command == "RUN_UNTIL_FULL") {
+      systemRunning = false;
+      conveyorRunUntilFullMode = true;
+      startConveyor();
+      Serial.println("CONVEYOR:RUN_UNTIL_FULL");
     }
     else if (command == "REJECT") {
       rejectDefectiveGallon();
