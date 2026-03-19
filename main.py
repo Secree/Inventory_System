@@ -1907,20 +1907,27 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     def extract_inventory_id(self, qr_data):
         """Extract inventory ID from QR code data"""
         try:
-            # Try format: "INVENTORY_ID:WG-0001|NAME:..."
-            if 'INVENTORY_ID:' in qr_data:
+            # Try format: "INVENTORY_ID:WG-0001|NAME:..." (case-insensitive)
+            qr_upper = qr_data.upper()
+            if 'INVENTORY_ID:' in qr_upper:
                 parts = qr_data.split('|')
                 for part in parts:
-                    if 'INVENTORY_ID:' in part:
-                        return part.split(':', 1)[1].strip()
+                    if 'INVENTORY_ID:' in part.upper():
+                        id_value = part.split(':', 1)[1].strip()
+                        # Normalize to uppercase WG-#### format
+                        if id_value:
+                            return id_value.upper()
             
-            # Try to find WG-#### pattern
-            inventory_match = re.search(r'WG-\d{4}', qr_data)
+            # Try to find WG-#### pattern (case-insensitive)
+            inventory_match = re.search(r'[Ww][Gg]-\d{4}', qr_data)
             if inventory_match:
-                return inventory_match.group(0)
+                return inventory_match.group(0).upper()
             
+            # Debug: log what we couldn't parse
+            print(f"DEBUG: Could not extract inventory ID from QR data: {qr_data}")
             return None
-        except:
+        except Exception as e:
+            print(f"DEBUG: Error extracting inventory ID: {e}")
             return None
     
     def connect_arduino(self):
