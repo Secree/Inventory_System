@@ -141,11 +141,11 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
 const int MAX_FILL_TIME = 15000;          // ms - maximum fillf time (timeout)
-const int ACTUATOR_EXTEND_TIME = 6800;   // ms - shortened full-extend travel time
-const int ACTUATOR_RETRACT_TIME = 6500;  // ms - time for primary actuator to fully retract
-const int ACTUATOR_HALF_EXTEND_TIME = 3400;  // ms - shorter half-stroke to avoid hitting mechanical full extension
-const int REJECT_PUSH_TIME = 3500;        // ms - reject pusher extend time (faster cycle)
-const int REJECT_RETRACT_TIME = 3500;     // ms - reject pusher retract time (faster cycle)
+const int ACTUATOR_EXTEND_TIME = 8000;   // ms - shortened full-extend travel time
+const int ACTUATOR_RETRACT_TIME = 8000;  // ms - time for primary actuator to fully retract
+const int ACTUATOR_HALF_EXTEND_TIME = 4000;  // ms - shorter half-stroke to avoid hitting mechanical full extension
+const int REJECT_PUSH_TIME = 6000;        // ms - reject pusher extend time (faster cycle)
+const int REJECT_RETRACT_TIME = 6000;     // ms - reject pusher retract time (faster cycle)
 const int REJECT_AFTER_RAISE_DELAY = 300; // ms - settle time after primary actuator raise
 
 // Sampling delays
