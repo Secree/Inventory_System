@@ -137,6 +137,7 @@ const int WATER_FULL_DISTANCE = 8;         // Water level reached (close to sens
 const int CONVEYOR_SPEED = 60;            // PWM value (0-255)
 const int CONVEYOR_START_DELAY = 3000;    // ms - wait before conveyor starts (actuator raise clearance)
 const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
+const int CONVEYOR_BRAKE_TIME = 250;      // ms - active brake pulse to stop conveyor quickly
 
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
@@ -495,6 +496,12 @@ void startConveyor() {
 }
 
 void stopConveyor() {
+  // Active brake first (both direction pins same state), then disable output.
+  digitalWrite(MOTOR_IN1, HIGH);
+  digitalWrite(MOTOR_IN2, HIGH);
+  analogWrite(MOTOR_ENA, 255);
+  delay(CONVEYOR_BRAKE_TIME);
+
   digitalWrite(MOTOR_IN1, LOW);
   digitalWrite(MOTOR_IN2, LOW);
   analogWrite(MOTOR_ENA, 0);
