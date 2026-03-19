@@ -112,7 +112,7 @@ const int ACTUATOR_RETRACT_SPEED = 180; // PWM speed while retracting (raise)
 const int REJECT_ACTUATOR_ENA   = 10;
 const int REJECT_ACTUATOR_IN1   = 7;
 const int REJECT_ACTUATOR_IN2   = 8;
-const int REJECT_ACTUATOR_SPEED = 200;
+const int REJECT_ACTUATOR_SPEED = 255;
 
 // Air pump relay (relay module on pin 13)
 const int AIR_PUMP_RELAY = 13;
@@ -143,8 +143,9 @@ const int MAX_FILL_TIME = 15000;          // ms - maximum fillf time (timeout)
 const int ACTUATOR_EXTEND_TIME = 6800;   // ms - shortened full-extend travel time
 const int ACTUATOR_RETRACT_TIME = 6500;  // ms - time for primary actuator to fully retract
 const int ACTUATOR_HALF_EXTEND_TIME = 3400;  // ms - shorter half-stroke to avoid hitting mechanical full extension
-const int REJECT_PUSH_TIME = 6000;        // ms - reject pusher extend time
-const int REJECT_RETRACT_TIME = 6500;     // ms - reject pusher retract time
+const int REJECT_PUSH_TIME = 3500;        // ms - reject pusher extend time (faster cycle)
+const int REJECT_RETRACT_TIME = 3500;     // ms - reject pusher retract time (faster cycle)
+const int REJECT_AFTER_RAISE_DELAY = 300; // ms - settle time after primary actuator raise
 
 // Sampling delays
 const int PRESSURE_CHECK_INTERVAL = 1000;  // ms
@@ -579,7 +580,10 @@ void rejectDefectiveGallon() {
   Serial.println("REJECT:START");
 
   // Step 1: Ensure primary actuator is fully retracted before reject push.
+  Serial.println("ACTUATOR:RAISING");
   raisePrimaryActuator(false);
+  Serial.println("ACTUATOR:RAISED");
+  delay(REJECT_AFTER_RAISE_DELAY);
 
   // Step 2: Use second actuator to push defective gallon out.
   extendRejectActuator();
