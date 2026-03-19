@@ -33,6 +33,7 @@ except ImportError:
 
 PRE_PRESSURE_POST_LOWER_DELAY_SEC = 2
 POST_PRESSURE_PRE_RAISE_DELAY_MS = 2000
+CONVEYOR_START_DELAY_AFTER_RAISE_MS = 3000
 PRE_LOWER_DELAY_MS = 5000
 
 
@@ -95,6 +96,7 @@ class InventoryApp:
         self.workflow_running = False
         self._qr_scan_after_id = None
         self._pre_lower_after_id = None
+        self._conveyor_start_after_raise_id = None
         self._fill_serial_buffer = ""
         self.qr_scan_locked = False
         self.manual_defect_fallback = False
@@ -2464,7 +2466,6 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.send_fill_arduino_command("ENABLE")
             if self.workflow_state == "CHECKING_PRESSURE":
                 self.workflow_state = "MOVING"
-                self.root.after(0, self.workflow_move_to_fill)
 
         elif "CONVEYOR:MOVING" in response:
             if _IOT_AVAILABLE:
@@ -2626,6 +2627,22 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
             self.root.after(0, lambda: self.conveyor_status.config(text="●", fg="#95a5a6"))
             self.log_workflow("✓ Conveyor kept OFF after actuator lift")
 
+            if self._last_leak_verdict == 'OK' and self.workflow_state == "MOVING" and self.workflow_running:
+                if self._conveyor_start_after_raise_id is not None:
+                    self.root.after_cancel(self._conveyor_start_after_raise_id)
+                self.log_workflow("⏳ Waiting 3s before starting conveyor...")
+                self._conveyor_start_after_raise_id = self.root.after(
+                    CONVEYOR_START_DELAY_AFTER_RAISE_MS,
+                    self._start_conveyor_after_raise_delay
+                )
+
+    def _start_conveyor_after_raise_delay(self):
+        """Start conveyor only after post-raise settle delay."""
+        self._conveyor_start_after_raise_id = None
+        if not self.workflow_running or self.workflow_state != "MOVING":
+            return
+        self.workflow_move_to_fill()
+
     def log_workflow(self, message):
         """Add message to workflow log"""
         if threading.current_thread() is not threading.main_thread():
@@ -2679,6 +2696,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def stop_automated_workflow(self):
         """Stop the automated workflow"""
+        if self._conveyor_start_after_raise_id is not None:
+            self.root.after_cancel(self._conveyor_start_after_raise_id)
+            self._conveyor_start_after_raise_id = None
+
         if self._pre_lower_after_id is not None:
             self.root.after_cancel(self._pre_lower_after_id)
             self._pre_lower_after_id = None
@@ -2706,6 +2727,10 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
     
     def reset_workflow(self):
         """Reset workflow to initial state"""
+        if self._conveyor_start_after_raise_id is not None:
+            self.root.after_cancel(self._conveyor_start_after_raise_id)
+            self._conveyor_start_after_raise_id = None
+
         if self._pre_lower_after_id is not None:
             self.root.after_cancel(self._pre_lower_after_id)
             self._pre_lower_after_id = None

@@ -134,6 +134,7 @@ const int WATER_FULL_DISTANCE = 8;         // Water level reached (close to sens
 
 // Conveyor timing
 const int CONVEYOR_SPEED = 60;            // PWM value (0-255)
+const int CONVEYOR_START_DELAY = 3000;    // ms - wait before conveyor starts (actuator raise clearance)
 const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 
 // Fill timing
@@ -481,6 +482,8 @@ void changeState(SystemState newState) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 void startConveyor() {
+  // Give actuator time to finish retracting before moving conveyor.
+  delay(CONVEYOR_START_DELAY);
   digitalWrite(MOTOR_IN1, HIGH);
   digitalWrite(MOTOR_IN2, LOW);
   analogWrite(MOTOR_ENA, CONVEYOR_SPEED);
