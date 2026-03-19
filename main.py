@@ -2345,7 +2345,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     raise ValueError("No pressure number found")
                 pressure = float(match.group(0))
                 self._last_pressure_value = pressure
-                threshold = 100.0
+                threshold = 130.0
                 mark = "✓" if pressure >= threshold else "…"
                 self.log_workflow(f"PRESSURE: {pressure:.1f} (need >= {threshold:.0f}) {mark}")
                 self.root.after(0, lambda p=pressure: self.pressure_value_label.config(
@@ -2416,7 +2416,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
                     raise ValueError("No pressure number found")
                 pressure = float(match.group(0))
                 self._last_pressure_value = pressure
-                threshold = 100.0
+                threshold = 130.0
                 mark = "✓" if pressure >= threshold else "…"
                 self.root.after(0, lambda p=pressure: self.pressure_value_label.config(
                     text=f"Pressure: {p:.1f}  (need ≥ {threshold:.0f}) {mark}"))
@@ -2996,7 +2996,7 @@ Most Refilled: {sorted_gallons[0]['inventory_id'] if sorted_gallons else 'N/A'}
         """Auto-select defect or no-defect based on last pressure verdict / threshold."""
         if self.workflow_state != "CHECKING_DEFECT":
             return
-        NO_LEAK_PRESSURE = 100.0  # must match Arduino NO_LEAK_PRESSURE constant
+        NO_LEAK_PRESSURE = 130.0  # must match Arduino NO_LEAK_PRESSURE constant
         verdict = self._last_leak_verdict
         if verdict == 'DETECTED':
             has_defect = True
