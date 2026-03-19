@@ -358,6 +358,10 @@ void runStateMachine() {
           gallonDetectedPendingStop = true;
           gallonDetectTime = millis();
           Serial.println("GALLON:DETECTED");
+          // Keep motor running for the 1 second delay
+          digitalWrite(MOTOR_IN1, HIGH);
+          digitalWrite(MOTOR_IN2, LOW);
+          analogWrite(MOTOR_ENA, CONVEYOR_SPEED);
         }
 
         if (gallonDetectedPendingStop && (millis() - gallonDetectTime >= GALLON_STOP_DELAY_MS)) {
@@ -366,6 +370,11 @@ void runStateMachine() {
           gallonDetectedPendingStop = false;
           delay(500);  // Let gallon settle
           changeState(FILLING);
+        } else if (gallonDetectedPendingStop) {
+          // Keep conveyor running during the 1-second post-detection delay
+          digitalWrite(MOTOR_IN1, HIGH);
+          digitalWrite(MOTOR_IN2, LOW);
+          analogWrite(MOTOR_ENA, CONVEYOR_SPEED);
         }
         
         // Timeout check
