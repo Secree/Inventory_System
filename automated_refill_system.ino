@@ -13,11 +13,10 @@
  * 
  * Hardware Setup:
  * 
- * PRESSURE SENSOR (digital module with GND/SCK/OUT/VCC):
+ * PRESSURE SENSOR (analog 0-40 kPa):
  *   GND -> Arduino GND
- *   VCC -> Arduino 5V (or 3.3V if your module requires)
- *   SCK -> Arduino Pin 3 (clock)
- *   OUT -> Arduino Pin 2 (data)
+ *   VCC -> Arduino 5V
+ *   OUT -> Arduino Pin A0
  * 
  * CONVEYOR MOTOR (via Relay/Motor Driver):
  *   IN1  -> Arduino Pin A1
@@ -29,7 +28,7 @@
  *   VCC  -> Arduino 5V
  *   GND  -> Arduino GND
  *   TRIG -> Arduino Pin 12
- *   ECHO -> Arduino Pin A0
+ *   ECHO -> Arduino Pin A3
  * 
  * SOLENOID VALVE:
  *   Controlled by Arduino2 fill controller (RELAY_PIN = 7)
@@ -75,15 +74,9 @@
 // PIN CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Pressure Sensor (clock/data style, 24-bit reading)
-const int PRESSURE_OUT_PIN = 2;
-const int PRESSURE_SCK_PIN = 3;
-
-// Raw-to-pressure conversion. Tune these from your sensor calibration.
-const long PRESSURE_RAW_AT_0 = 0;
-const long PRESSURE_RAW_AT_MAX = 8388607;
-const float PRESSURE_MAX = 710.0;
-const long PRESSURE_READ_TIMEOUT_SENTINEL = -2147483647L;
+// Pressure Sensor (analog)
+const int PRESSURE_SENSOR_PIN = A0;
+const float PRESSURE_SENSOR_MAX_KPA = 40.0;
 
 // Conveyor Motor (L298N or similar)
 const int MOTOR_IN1 = A1;     // Direction control 1
@@ -92,7 +85,7 @@ const int MOTOR_ENA = 11;     // PWM speed control (0-255)
 
 // Ultrasonic Sensor
 const int TRIG_PIN = 12;
-const int ECHO_PIN = A0;
+const int ECHO_PIN = A3;
 
 // Primary actuator DC motor (L298N via 12V supply)
 //   12V supply  -> L298N 12V / motor power
@@ -124,7 +117,7 @@ const int AIR_PUMP_OFF   = HIGH;
 // SYSTEM PARAMETERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-const float NO_LEAK_PRESSURE = 80.0;      // Required relative pressure rise above baseline for no-leak
+const float NO_LEAK_PRESSURE = 5.0;       // Required relative pressure rise above baseline for no-leak (kPa)
 const unsigned long PRESSURE_TEST_TIME_MS = 15000;  // Wait 15 seconds before leak decision
 const unsigned long PUMP_ON_TIME_MS = 15000;        // Keep pump ON for first 10 seconds of pressure test
 const int CONSISTENT_HIGH_READS_REQUIRED = 5;        // Consecutive reads above threshold needed for no-leak
@@ -178,8 +171,6 @@ float lastPressure = 0.0;
 int highPressureStreak = 0;
 bool pumpIsOn = false;
 
-long readPressureRaw24();
-float rawToPressure(long raw);
 bool isLeakDetected(float pressureValue);
 float toRelativePressure(float absolutePressure, float baselinePressure);
 float requiredRiseForNoLeak(float baselinePressure);
@@ -216,9 +207,7 @@ void setup() {
   pinMode(MOTOR_IN1, OUTPUT);
   pinMode(MOTOR_IN2, OUTPUT);
   pinMode(MOTOR_ENA, OUTPUT);
-  pinMode(PRESSURE_OUT_PIN, INPUT);
-  pinMode(PRESSURE_SCK_PIN, OUTPUT);
-  digitalWrite(PRESSURE_SCK_PIN, LOW);
+  pinMode(PRESSURE_SENSOR_PIN, INPUT);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(ACTUATOR_ENA, OUTPUT);
@@ -244,7 +233,7 @@ void setup() {
   Serial.println("Automated Gallon Refill System");
   Serial.println("=================================");
   Serial.println("Commands: START | STOP | STATUS | RESET | REJECT | LOWER | LOWER_HALF | RAISE");
-  Serial.println("PRESSURE:SCK_OUT_MODE (OUT->D2, SCK->D3)");
+  Serial.println("PRESSURE:ANALOG_MODE (OUT->A0, RANGE 0-40kPa)");
   Serial.println("System in IDLE state");
 }
 
@@ -261,7 +250,7 @@ void loop() {
     runStateMachine();
 
     // Log air pressure every second throughout the workflow.
-    // Sends relative pressure when baseline is set (same 0-based scale as NO_LEAK_PRESSURE = 15),
+    // Sends relative pressure when baseline is set (same kPa scale as NO_LEAK_PRESSURE),
     // or absolute pressure before any test baseline is established.
     if (millis() - lastPressureLog >= 1000) {
       lastPressureLog = millis();
@@ -609,55 +598,9 @@ void rejectDefectiveGallon() {
 }
 
 float readPressure() {
-  long raw = readPressureRaw24();
-  if (raw == PRESSURE_READ_TIMEOUT_SENTINEL) {
-    lastPressure = 0.0;
-    return 0.0;
-  }
-
-  float pressure = rawToPressure(raw);
+  int analogValue = analogRead(PRESSURE_SENSOR_PIN);
+  float pressure = (analogValue / 1023.0) * PRESSURE_SENSOR_MAX_KPA;
   lastPressure = pressure;
-  return pressure;
-}
-
-long readPressureRaw24() {
-  unsigned long start = millis();
-  while (digitalRead(PRESSURE_OUT_PIN)) {
-    if (millis() - start > 1000) {
-      return PRESSURE_READ_TIMEOUT_SENTINEL;
-    }
-  }
-
-  long result = 0;
-  for (int i = 0; i < 24; i++) {
-    digitalWrite(PRESSURE_SCK_PIN, HIGH);
-    digitalWrite(PRESSURE_SCK_PIN, LOW);
-    result = result << 1;
-    if (digitalRead(PRESSURE_OUT_PIN)) {
-      result++;
-    }
-  }
-
-  // Convert from two's complement representation used by this module.
-  result = result ^ 0x800000;
-
-  // Start next reading cycle.
-  for (byte i = 0; i < 3; i++) {
-    digitalWrite(PRESSURE_SCK_PIN, HIGH);
-    digitalWrite(PRESSURE_SCK_PIN, LOW);
-  }
-
-  return result;
-}
-
-float rawToPressure(long raw) {
-  float span = (float)(PRESSURE_RAW_AT_MAX - PRESSURE_RAW_AT_0);
-  if (span == 0.0) {
-    return 0.0;
-  }
-
-  float pressure = ((float)(raw - PRESSURE_RAW_AT_0) / span) * PRESSURE_MAX;
-  if (pressure < 0.0) pressure = 0.0;
   return pressure;
 }
 
