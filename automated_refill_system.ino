@@ -132,6 +132,7 @@ const int CONSISTENT_HIGH_READS_REQUIRED = 5;        // Consecutive reads above 
 // Ultrasonic distances (cm)
 const int GALLON_DETECTION_DISTANCE = 25;  // Gallon present at fill station
 const int WATER_FULL_DISTANCE = 8;         // Water level reached (close to sensor)
+const int GALLON_STOP_DELAY_MS = 1000;     // ms - keep conveyor moving after first gallon detect
 
 // Conveyor timing
 const int CONVEYOR_SPEED = 60;            // PWM value (0-255)
@@ -173,6 +174,8 @@ bool systemRunning = false;
 unsigned long stateStartTime = 0;
 unsigned long lastPressureCheck = 0;
 unsigned long lastPressureLog = 0;  // Tracks 1-second pressure logging interval
+unsigned long gallonDetectTime = 0;
+bool gallonDetectedPendingStop = false;
 int gallonsProcessed = 0;
 float pressureBaseline = -1.0;
 float lastPressure = 0.0;
@@ -351,17 +354,22 @@ void runStateMachine() {
       // Wait for ultrasonic to detect gallon
       {
         long distance = getUltrasonicDistance();
-        if (distance > 0 && distance <= GALLON_DETECTION_DISTANCE) {
+        if (!gallonDetectedPendingStop && distance > 0 && distance <= GALLON_DETECTION_DISTANCE) {
+          gallonDetectedPendingStop = true;
+          gallonDetectTime = millis();
           Serial.println("GALLON:DETECTED");
-          delay(1000);  // Keep conveyor moving 1s after detection
+        }
+
+        if (gallonDetectedPendingStop && (millis() - gallonDetectTime >= GALLON_STOP_DELAY_MS)) {
           stopConveyor();
           Serial.println("CONVEYOR:STOPPED");
+          gallonDetectedPendingStop = false;
           delay(500);  // Let gallon settle
           changeState(FILLING);
         }
         
         // Timeout check
-        if (millis() - stateStartTime > 10000) {
+        if (!gallonDetectedPendingStop && millis() - stateStartTime > 10000) {
           stopConveyor();
           Serial.println("ERROR: No gallon detected (timeout)");
           changeState(ERROR_TIMEOUT);
@@ -463,6 +471,9 @@ void pumpOff() {
 }
 
 void changeState(SystemState newState) {
+  // Reset pending delayed-stop latch whenever leaving/re-entering wait state.
+  gallonDetectedPendingStop = false;
+
   // Pump runs only during pressure check.
   if (newState == CHECKING_PRESSURE && !pumpIsOn) {
     pumpOn();
