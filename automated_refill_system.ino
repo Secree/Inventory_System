@@ -102,8 +102,8 @@ const int ECHO_PIN = A0;
 const int ACTUATOR_ENA   = 9;   // PWM enable
 const int ACTUATOR_IN1   = 5;   // Direction control 1 (extend = lower)
 const int ACTUATOR_IN2   = 6;   // Direction control 2 (retract = raise)
-const int ACTUATOR_EXTEND_SPEED = 150; // PWM speed while extending (lower), reduced for shorter stroke control
-const int ACTUATOR_RETRACT_SPEED = 255; // PWM speed while retracting (raise)
+const int ACTUATOR_EXTEND_SPEED = 180; // PWM speed while extending (lower), reduced for shorter stroke control
+const int ACTUATOR_RETRACT_SPEED = 180; // PWM speed while retracting (raise)
 
 // Reject actuator DC motor (L298N via 12V supply)
 //   ENA  -> Arduino Pin 10
@@ -123,7 +123,7 @@ const int AIR_PUMP_OFF   = HIGH;
 // SYSTEM PARAMETERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-const float NO_LEAK_PRESSURE = 15.0;      // Required relative pressure rise above baseline for no-leak
+const float NO_LEAK_PRESSURE = 80.0;      // Required relative pressure rise above baseline for no-leak
 const unsigned long PRESSURE_TEST_TIME_MS = 15000;  // Wait 15 seconds before leak decision
 const unsigned long PUMP_ON_TIME_MS = 15000;        // Keep pump ON for first 10 seconds of pressure test
 const int CONSISTENT_HIGH_READS_REQUIRED = 5;        // Consecutive reads above threshold needed for no-leak
@@ -139,12 +139,12 @@ const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
 
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
-const int MAX_FILL_TIME = 15000;          // ms - maximum fill time (timeout)
-const int ACTUATOR_EXTEND_TIME = 3000;   // ms - shortened full-extend travel time
-const int ACTUATOR_RETRACT_TIME = 8000;  // ms - time for primary actuator to fully retract
-const int ACTUATOR_HALF_EXTEND_TIME = 1500;  // ms - shorter half-stroke to avoid hitting mechanical full extension
-const int REJECT_PUSH_TIME = 5000;        // ms - reject pusher extend time
-const int REJECT_RETRACT_TIME = 6000;     // ms - reject pusher retract time
+const int MAX_FILL_TIME = 15000;          // ms - maximum fillf time (timeout)
+const int ACTUATOR_EXTEND_TIME = 6800;   // ms - shortened full-extend travel time
+const int ACTUATOR_RETRACT_TIME = 6500;  // ms - time for primary actuator to fully retract
+const int ACTUATOR_HALF_EXTEND_TIME = 3400;  // ms - shorter half-stroke to avoid hitting mechanical full extension
+const int REJECT_PUSH_TIME = 6000;        // ms - reject pusher extend time
+const int REJECT_RETRACT_TIME = 6500;     // ms - reject pusher retract time
 
 // Sampling delays
 const int PRESSURE_CHECK_INTERVAL = 1000;  // ms
@@ -337,6 +337,7 @@ void runStateMachine() {
     
     case MOVING_TO_FILL_STATION:
       // Move conveyor until gallon detected
+      delay(3000);
       startConveyor();
       Serial.println("CONVEYOR:MOVING");
       changeState(WAITING_FOR_GALLON);
