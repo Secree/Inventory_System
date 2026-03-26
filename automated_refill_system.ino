@@ -95,8 +95,7 @@ const int MOTOR_ENA = 11;     // PWM speed control (0-255)
 const int TRIG_PIN = 12;
 const int ECHO_PIN = A0;
 
-// Primary actuator DC motor (L298N via 12V supply)
- 12V supply  -> L298N 12V / motor power//  
+
 const int ACTUATOR_ENA   = 9;   // PWM enable
 const int ACTUATOR_IN1   = 5;   // Direction control 1 (extend = lower)
 const int ACTUATOR_IN2   = 6;   // Direction control 2 (retract = raise)
