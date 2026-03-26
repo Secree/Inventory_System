@@ -124,13 +124,13 @@ const int CONSISTENT_HIGH_READS_REQUIRED = 5;        // Consecutive reads above 
 // Ultrasonic distances (cm)
 const int GALLON_DETECTION_DISTANCE = 25;  // Gallon present at fill station
 const int WATER_FULL_DISTANCE = 8;         // Water level reached (close to sensor)
-const int GALLON_STOP_DELAY_MS = 1000;     // ms - keep conveyor moving after first gallon detect
+const int GALLON_STOP_DELAY_MS = 3000;     // ms - keep conveyor moving after first gallon detect
 
 // Conveyor timing
-const int CONVEYOR_SPEED = 60;            // PWM value (0-255)
+const int CONVEYOR_SPEED = 100;            // PWM value (0-255)
 const int CONVEYOR_START_DELAY = 3000;    // ms - wait before conveyor starts (actuator raise clearance)
 const int CONVEYOR_MOVE_TIME = 3000;      // ms - time to move to next position
-const int CONVEYOR_BRAKE_TIME = 250;      // ms - active brake pulse to stop conveyor quickly
+const int CONVEYOR_BRAKE_TIME = 2000;      // ms - active brake pulse to stop conveyor quickly
 
 // Fill timing
 const int MIN_FILL_TIME = 2000;           // ms - minimum fill time
@@ -369,7 +369,6 @@ void runStateMachine() {
         }
 
         if (gallonDetectedPendingStop && (millis() - gallonDetectTime >= GALLON_STOP_DELAY_MS)) {
-          delay(1000);  // Ensure delay after detection before stopping conveyor
           stopConveyor();
           Serial.println("CONVEYOR:STOPPED");
           gallonDetectedPendingStop = false;
