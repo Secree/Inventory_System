@@ -138,9 +138,9 @@ const int MAX_FILL_TIME = 15000;          // ms - maximum fillf time (timeout)
 const int ACTUATOR_EXTEND_TIME = 8000;   // ms - shortened full-extend travel time
 const int ACTUATOR_RETRACT_TIME = 8000;  // ms - time for primary actuator to fully retract
 const int ACTUATOR_HALF_EXTEND_TIME = 4000;  // ms - shorter half-stroke to avoid hitting mechanical full extension
-const int REJECT_PUSH_TIME = 6000;        // ms - reject pusher extend time (faster cycle)  
-const int REJECT_RETRACT_TIME = 6000;     // ms - reject pusher retract time (faster cycle)
-const int REJECT_AFTER_RAISE_DELAY = 300; // ms - settle time after primary actuator raise
+const int REJECT_PUSH_TIME = 3500;        // ms - reject pusher extend time
+const int REJECT_RETRACT_TIME = 3500;     // ms - reject pusher retract time
+const int REJECT_AFTER_RAISE_DELAY = 150; // ms - settle time after primary actuator raise
 
 // Sampling delays
 const int PRESSURE_CHECK_INTERVAL = 1000;  // ms
@@ -531,6 +531,13 @@ void stopConveyor() {
   analogWrite(MOTOR_ENA, 0);
 }
 
+void stopConveyorImmediate() {
+  // Used in reject path when we need fastest possible handoff to eject sequence.
+  digitalWrite(MOTOR_IN1, LOW);
+  digitalWrite(MOTOR_IN2, LOW);
+  analogWrite(MOTOR_ENA, 0);
+}
+
 void openValve() {
   // Valve is controlled by Arduino2 fill controller.
 }
@@ -615,7 +622,7 @@ void stopRejectActuator() {
 }
 
 void rejectDefectiveGallon() {
-  stopConveyor();
+  stopConveyorImmediate();
   closeValve();
 
   Serial.println("REJECT:START");
