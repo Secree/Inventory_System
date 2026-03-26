@@ -96,10 +96,7 @@ const int TRIG_PIN = 12;
 const int ECHO_PIN = A0;
 
 // Primary actuator DC motor (L298N via 12V supply)
-//   12V supply  -> L298N 12V / motor power
-//   ENA  -> Arduino Pin 5 (PWM speed)
-//   IN1  -> Arduino Pin 6
-//   IN2  -> Arduino Pin 9
+ 12V supply  -> L298N 12V / motor power//  
 const int ACTUATOR_ENA   = 9;   // PWM enable
 const int ACTUATOR_IN1   = 5;   // Direction control 1 (extend = lower)
 const int ACTUATOR_IN2   = 6;   // Direction control 2 (retract = raise)
@@ -107,16 +104,11 @@ const int ACTUATOR_EXTEND_SPEED = 180; // PWM speed while extending (lower), red
 const int ACTUATOR_RETRACT_SPEED = 180; // PWM speed while retracting (raise)
 const int ACTUATOR_HOLD_RAISE_SPEED = 120; // PWM hold force to keep actuator up during reject push
 
-// Reject actuator DC motor (L298N via 12V supply)
-//   ENA  -> Arduino Pin 10
-//   IN1  -> Arduino Pin 7
-//   IN2  -> Arduino Pin 8
 const int REJECT_ACTUATOR_ENA   = 10;
 const int REJECT_ACTUATOR_IN1   = 7;
 const int REJECT_ACTUATOR_IN2   = 8;
 const int REJECT_ACTUATOR_SPEED = 255;
 
-// Air pump relay (relay module on pin 13)
 const int AIR_PUMP_RELAY = 13;
 const int AIR_PUMP_ON    = LOW;  
 const int AIR_PUMP_OFF   = HIGH;   
@@ -147,7 +139,7 @@ const int MAX_FILL_TIME = 15000;          // ms - maximum fillf time (timeout)
 const int ACTUATOR_EXTEND_TIME = 8000;   // ms - shortened full-extend travel time
 const int ACTUATOR_RETRACT_TIME = 8000;  // ms - time for primary actuator to fully retract
 const int ACTUATOR_HALF_EXTEND_TIME = 4000;  // ms - shorter half-stroke to avoid hitting mechanical full extension
-const int REJECT_PUSH_TIME = 6000;        // ms - reject pusher extend time (faster cycle)
+const int REJECT_PUSH_TIME = 6000;        // ms - reject pusher extend time (faster cycle)  
 const int REJECT_RETRACT_TIME = 6000;     // ms - reject pusher retract time (faster cycle)
 const int REJECT_AFTER_RAISE_DELAY = 300; // ms - settle time after primary actuator raise
 
@@ -371,13 +363,14 @@ void runStateMachine() {
           gallonDetectedPendingStop = true;
           gallonDetectTime = millis();
           Serial.println("GALLON:DETECTED");
-          // Keep motor running for the 1 second delay
+          // Keep motor running for the 1 second dela
           digitalWrite(MOTOR_IN1, HIGH);
           digitalWrite(MOTOR_IN2, LOW);
           analogWrite(MOTOR_ENA, CONVEYOR_SPEED);
         }
 
         if (gallonDetectedPendingStop && (millis() - gallonDetectTime >= GALLON_STOP_DELAY_MS)) {
+          delay(1000);  // Ensure delay after detection before stopping conveyor
           stopConveyor();
           Serial.println("CONVEYOR:STOPPED");
           gallonDetectedPendingStop = false;
